@@ -14,6 +14,7 @@ contract ERC20 {
 
 // UbiTok.io limit order book with an ERC20 token as base, ETH as quoted, and standard fees.
 // Copyright (c) Bonnag Limited. All Rights Reserved.
+// WARNING: THIS CONTRACT IS STILL IN DEVELOPMENT, DO NOT USE FOR REAL MONEY.
 //
 contract BookERC20EthV1 {
 
