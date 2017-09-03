@@ -1,12 +1,20 @@
 // Main test suite for the UbiTok.io exchange contract.
 //
+// TODO - test payments fully
+// TODO - test paying fees with reward token
+// TODO - test events are raised ..
+// TODO - move over to BigNumber (or ether amounts as strings) throughout
+//
 
 var BookERC20EthV1 = artifacts.require('BookERC20EthV1.sol');
 var TestToken = artifacts.require('TestToken.sol');
+var UbiRewardToken = artifacts.require('UbiRewardToken.sol');
 
 var UbiTokTypes = require('../../ubitok-jslib/ubi-tok-types.js');
 var BigNumber = UbiTokTypes.BigNumber;
-var ReferenceExchange = require('../../ubitok-jslib/reference-exchange.js');
+var ReferenceExchange = require('../../ubitok-jslib/reference-exchange-instrumented.js');
+
+process.on('exit', function () { require('fs').writeFileSync('coverage.data', Buffer(JSON.stringify(__coverage__))) });
 
 contract('BookERC20EthV1 - create order errors', function(accounts) {
   var packedBuyOnePointZero = UbiTokTypes.encodePrice('Buy @ 1.00');
@@ -125,20 +133,54 @@ contract('BookERC20EthV1 - ERC20 payments', function(accounts) {
 
 var standardInitialBalanceBase = 1000000000;
 var standardInitialBalanceCntr =  100000000;
+var optionalInitialBalanceRwrd = new BigNumber(10000000);
+
+var standardInitialBalances = {
+  balanceBase: new BigNumber(standardInitialBalanceBase),
+  balanceCntr:  new BigNumber(standardInitialBalanceCntr),
+  balanceRwrd:          new BigNumber(0),
+  ownBase:     new BigNumber(3000000000),
+  ownCntr:      new BigNumber(300000000),
+  ownRwrd:       new BigNumber(30000000)
+};
 
 function runReferenceExchange(clients, commands) {
   var rx = new ReferenceExchange();
   for (var client of clients) {
-    rx.depositBaseForTesting(client, standardInitialBalanceBase);
-    rx.depositCntrForTesting(client, standardInitialBalanceCntr);
+    rx.setBalancesForTesting(client, 
+      standardInitialBalances.balanceBase,
+      standardInitialBalances.balanceCntr,
+      standardInitialBalances.balanceRwrd,
+      standardInitialBalances.ownBase,
+      standardInitialBalances.ownCntr, // not honoured for the contract
+      standardInitialBalances.ownRwrd
+    );
   }
   for (var cmd of commands) {
-    if (cmd[0] === 'Create') {
+    if (cmd[0] === 'createOrder') {
       rx.createOrder(cmd[1], cmd[2], cmd[3], new BigNumber(cmd[4]), cmd[5], cmd[6], cmd[7]);
-    } else if (cmd[0] === 'Cancel') {
+    } else if (cmd[0] === 'cancelOrder') {
       rx.cancelOrder(cmd[1], cmd[2]);
-    } else if (cmd[0] === 'Continue') {
+    } else if (cmd[0] === 'continueOrder') {
       rx.continueOrder(cmd[1], cmd[2], cmd[3]);
+    } else if (cmd[0] === 'baseTokenApprove') {
+      rx.baseTokenApprove(cmd[1], cmd[2]);
+    } else if (cmd[0] === 'transferFromBase') {
+      rx.transferFromBase(cmd[1]);
+    } else if (cmd[0] === 'transferBase') {
+      rx.transferFromBase(cmd[1], cmd[2]);
+    } else if (cmd[0] === 'depositCntr') {
+      rx.depositCntr(cmd[1], cmd[2]);
+    } else if (cmd[0] === 'withdrawCntr') {
+      rx.withdrawCntr(cmd[1], cmd[2]);
+    } else if (cmd[0] === 'rwrdTokenApprove') {
+      rx.rwrdTokenApprove(cmd[1], cmd[2]);
+    } else if (cmd[0] === 'transferFromRwrd') {
+      rx.transferFromRwrd(cmd[1]);
+    } else if (cmd[0] === 'transferRwrd') {
+      rx.transferRwrd(cmd[1], cmd[2]);
+    } else {
+      throw new Error("unknown cmd " + cmd[1]);
     }
   }
   return rx;
@@ -159,23 +201,29 @@ function buildScenario(accounts, commands, expectedOrders, expectedBalanceChange
     return TestToken.deployed();
   }).then(function(instance) {
     context.testToken = instance;
-    return context.uut.init(context.testToken.address, context.testToken.address);
+    return UbiRewardToken.deployed();
+  }).then(function(instance) {
+    context.rwrdToken = instance;
+    return context.uut.init(context.testToken.address, context.rwrdToken.address);
   });
   // Look ahead to figure out clients + orderIds involved
   var orderIds = new Set();
   var clients = new Set();
   for (var cmd of commands) {
     clients.add(cmd[1]);
-    orderIds.add(cmd[2]);
+    if (cmd[1].endsWith('Order')) {
+      orderIds.add(cmd[2]);
+    }
   }
   for (var expectedBalanceChange of expectedBalanceChanges) {
     clients.add(expectedBalanceChange[0]);
   }
   // Apply client balances + commands to the reference exchange
   var referenceExchange = runReferenceExchange(clients, commands);
-  // Make promises to set up initial client balances
+  // Make promises/commands to set up initial client balances
   var accountIdForClient = {};
   var nextAccountId = 1;
+  var setupCommands = [];
   for (var client of clients) {
     accountIdForClient[client] = nextAccountId;
     nextAccountId++;
@@ -183,26 +231,24 @@ function buildScenario(accounts, commands, expectedOrders, expectedBalanceChange
       return function (lastResult) {
         return ctx.testToken.transfer(ctx.accounts[a], ab, {from: ctx.accounts[0]});
       };
-    }(context, accountIdForClient[client], standardInitialBalanceBase)));
+    }(context, accountIdForClient[client], standardInitialBalances.ownBase.add(standardInitialBalances.balanceBase))));
     chain = chain.then((function (ctx, a, ab) {
       return function (lastResult) {
-        return ctx.testToken.approve(ctx.uut.address, ab, {from: ctx.accounts[a]});
+        return ctx.rwrdToken.transfer(ctx.accounts[a], ab, {from: ctx.accounts[0]});
       };
-    }(context, accountIdForClient[client], standardInitialBalanceBase)));
-    chain = chain.then((function (ctx, a, ab) {
-      return function (lastResult) {
-        return ctx.uut.transferFromBase({from: ctx.accounts[a]});
-      };
-    }(context, accountIdForClient[client], standardInitialBalanceBase)));
-    chain = chain.then((function (ctx, a, ac) {
-      return function (lastResult) {
-        return ctx.uut.depositCntr({from: ctx.accounts[a], value: ac});
-      };
-    }(context, accountIdForClient[client], standardInitialBalanceCntr)));
+    }(context, accountIdForClient[client], standardInitialBalances.ownRwrd.add(standardInitialBalances.balanceRwrd))));
+    setupCommands.push(["baseTokenApprove", client, standardInitialBalances.balanceBase]);
+    setupCommands.push(["transferFromBase", client]);
+    setupCommands.push(["depositCntr", client, standardInitialBalances.balanceCntr]);
+    if (standardInitialBalances.balanceRwrd.gt(0)) {
+      setupCommands.push(["rwrdTokenApprove", client, standardInitialBalances.balanceRwrd]);
+      setupCommands.push(["transferFromRwrd", client]);
+    }
   }
   // Make promises to run commands against contract
-  for (var cmd of commands) {
-    if (cmd[0] === 'Create') {
+  var allCommands = setupCommands.concat(commands);
+  for (var cmd of allCommands) {
+    if (cmd[0] === 'createOrder') {
       chain = chain.then((function (ctx, a, c) {
         return function (lastResult) {
           return ctx.uut.createOrder(
@@ -215,7 +261,7 @@ function buildScenario(accounts, commands, expectedOrders, expectedBalanceChange
           );
         };
       }(context, accountIdForClient[cmd[1]], cmd)));
-    } else if (cmd[0] === 'Cancel') {
+    } else if (cmd[0] === 'cancelOrder') {
       chain = chain.then((function (ctx, a, c) {
         return function (lastResult) {
           return ctx.uut.cancelOrder(
@@ -224,7 +270,7 @@ function buildScenario(accounts, commands, expectedOrders, expectedBalanceChange
           );
         };
       }(context, accountIdForClient[cmd[1]], cmd)));
-    } else if (cmd[0] === 'Continue') {
+    } else if (cmd[0] === 'continueOrder') {
       chain = chain.then((function (ctx, a, c) {
         return function (lastResult) {
           return ctx.uut.continueOrder(
@@ -232,6 +278,54 @@ function buildScenario(accounts, commands, expectedOrders, expectedBalanceChange
             c[3],
             {from: ctx.accounts[a]}
           );
+        };
+      }(context, accountIdForClient[cmd[1]], cmd)));
+    } else if (cmd[0] === 'baseTokenApprove') {
+      chain = chain.then((function (ctx, a, c) {
+        return function (lastResult) {
+          return ctx.testToken.approve(ctx.uut.address, c[2], {from: ctx.accounts[a]});
+        };
+      }(context, accountIdForClient[cmd[1]], cmd)));
+    } else if (cmd[0] === 'transferFromBase') {
+      chain = chain.then((function (ctx, a, c) {
+        return function (lastResult) {
+          return ctx.uut.transferFromBase({from: ctx.accounts[a]});
+        };
+      }(context, accountIdForClient[cmd[1]], cmd)));
+    } else if (cmd[0] === 'transferBase') {
+      chain = chain.then((function (ctx, a, c) {
+        return function (lastResult) {
+          return ctx.uut.transferBase(c[2], {from: ctx.accounts[a]});
+        };
+      }(context, accountIdForClient[cmd[1]], cmd)));
+    } else if (cmd[0] === 'depositCntr') {
+      chain = chain.then((function (ctx, a, c) {
+        return function (lastResult) {
+          return ctx.uut.depositCntr({from: ctx.accounts[a], value: c[2]});
+        };
+      }(context, accountIdForClient[cmd[1]], cmd)));
+    } else if (cmd[0] === 'withdrawCntr') {
+      chain = chain.then((function (ctx, a, c) {
+        return function (lastResult) {
+          return ctx.uut.withdrawCntr(c[2], {from: ctx.accounts[a]});
+        };
+      }(context, accountIdForClient[cmd[1]], cmd)));
+    } else if (cmd[0] === 'rwrdTokenApprove') {
+      chain = chain.then((function (ctx, a, c) {
+        return function (lastResult) {
+          return ctx.rwrdToken.approve(ctx.uut.address, c[2], {from: ctx.accounts[a]});
+        };
+      }(context, accountIdForClient[cmd[1]], cmd)));
+    } else if (cmd[0] === 'transferFromRwrd') {
+      chain = chain.then((function (ctx, a, c) {
+        return function (lastResult) {
+          return ctx.uut.transferFromRwrd({from: ctx.accounts[a]});
+        };
+      }(context, accountIdForClient[cmd[1]], cmd)));
+    } else if (cmd[0] === 'transferRwrd') {
+      chain = chain.then((function (ctx, a, c) {
+        return function (lastResult) {
+          return ctx.uut.transferRwrd(c[2], {from: ctx.accounts[a]});
         };
       }(context, accountIdForClient[cmd[1]], cmd)));
     } else {
@@ -267,6 +361,9 @@ function buildScenario(accounts, commands, expectedOrders, expectedBalanceChange
       return function (lastResult) {
         assert.equal(lastResult[0].toNumber() - standardInitialBalanceBase, ebc[1], "base balance change for " + ebc[0]);
         assert.equal(lastResult[1].toNumber() - standardInitialBalanceCntr, ebc[2], "counter balance change for " + ebc[0]);
+        if (ebc.length >= 4) {
+          assert.equal(lastResult[2].minus(optionalInitialBalanceRwrd).toNumber(), ebc[3], "reward balance change for " + ebc[0]);
+        }
       };
     }(context, accountIdForClient[client], expectedBalanceChange)));
   }
@@ -294,7 +391,23 @@ function buildScenario(accounts, commands, expectedOrders, expectedBalanceChange
   }
   // Make promises to compare client balances with reference balances
   for (var client of clients) {
-    // TODO
+    var refBalances = referenceExchange.getClientBalances(client);
+    chain = chain.then((function (ctx, a) {
+      return function (lastResult) {
+        return ctx.uut.getClientBalances.call(ctx.accounts[a]);
+      };
+    }(context, accountIdForClient[client])));
+    chain = chain.then((function (ctx, c, rbals) {
+      return function (lastResult) {
+        let abals = lastResult;
+        let balanceNames = ["bookBalanceBase", "bookBalanceCntr", "bookBalanceRwrd",
+                            "approvedBalanceBase", "approvedBalanceRwrd",
+                            "ownBalanceBase", "ownBalanceRwrd"];
+        for (let balanceIdx = 0; balanceIdx < balanceNames.length; balanceIdx++) {
+          assert.equal(abals[balanceIdx].toNumber(), rbals[balanceIdx].toNumber(), balanceNames[balanceIdx] + " for " + c);
+        }
+      };
+    }(context, client, refBalances)));
   }
   // Make promises to walk book comparing with reference book
   var refBook = referenceExchange.getBook();
@@ -346,8 +459,8 @@ function buildScenario(accounts, commands, expectedOrders, expectedBalanceChange
 contract('BookERC20EthV1 - scenarios', function(accounts) {
   it("two orders that don't match", function() {
     var commands = [
-      ['Create', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Create', "client2", "201", "Sell @ 0.600", 100000, 'GTCNoGasTopup', 3]
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201", "Sell @ 0.600", 100000, 'GTCNoGasTopup', 3]
     ];
     var expectedOrders = [
       ["101", 'Open', 'None', 0,  0],
@@ -364,8 +477,8 @@ contract('BookERC20EthV1 - scenarios', function(accounts) {
 contract('BookERC20EthV1', function(accounts) {
   it("two orders exactly match", function() {
     var commands = [
-      ['Create', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Create', "client2", "201", "Sell @ 0.500", 100000, 'GTCNoGasTopup', 3]
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201", "Sell @ 0.500", 100000, 'GTCNoGasTopup', 3]
     ];
     var expectedOrders = [
       ["101", 'Done', 'None', 100000,  50000],
@@ -380,10 +493,30 @@ contract('BookERC20EthV1', function(accounts) {
 });
 
 contract('BookERC20EthV1', function(accounts) {
+  it("two orders exactly match, paying fees with UBI (taker receives counter)", function() {
+    var commands = [
+      ['rwrdTokenApprove', "client2", optionalInitialBalanceRwrd],
+      ['transferFromRwrd', "client2"],
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201", "Sell @ 0.500", 100000, 'GTCNoGasTopup', 3]
+    ];
+    var expectedOrders = [
+      ["101", 'Done', 'None', 100000,  50000],
+      ["201", 'Done', 'None', 100000,  50000],
+    ];
+    var expectedBalanceChanges = [
+      ["client1", +100000, -50000],
+      ["client2", -100000, +50000, -2500]  // taker pays fee in UBI, not ETH (100 * 0.05% * 50000)
+    ];
+    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+  });
+});
+
+contract('BookERC20EthV1', function(accounts) {
   it("two orders partial match of 2nd", function() {
     var commands = [
-      ['Create', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Create', "client2", "201", "Sell @ 0.500", 300000, 'GTCNoGasTopup', 3]
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201", "Sell @ 0.500", 300000, 'GTCNoGasTopup', 3]
     ];
     var expectedOrders = [
       ["101", 'Done', 'None', 100000,  50000],
@@ -400,8 +533,8 @@ contract('BookERC20EthV1', function(accounts) {
 contract('BookERC20EthV1', function(accounts) {
   it("two orders best execution", function() {
     var commands = [
-      ['Create', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Create', "client2", "201", "Sell @ 0.400", 100000, 'GTCNoGasTopup', 3]
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201", "Sell @ 0.400", 100000, 'GTCNoGasTopup', 3]
     ];
     var expectedOrders = [
       ["101", 'Done', 'None', 100000,  50000],
@@ -419,9 +552,9 @@ contract('BookERC20EthV1', function(accounts) {
 contract('BookERC20EthV1', function(accounts) {
   it("three orders mixed prices", function() {
     var commands = [
-      ['Create', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Create', "client1", "102",  "Buy @ 0.600", 100000, 'GTCNoGasTopup', 3],
-      ['Create', "client2", "201", "Sell @ 0.400", 200000, 'GTCNoGasTopup', 3]
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "102",  "Buy @ 0.600", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201", "Sell @ 0.400", 200000, 'GTCNoGasTopup', 3]
     ];
     var expectedOrders = [
       ["101", 'Done', 'None', 100000,  50000],
@@ -439,9 +572,9 @@ contract('BookERC20EthV1', function(accounts) {
 contract('BookERC20EthV1', function(accounts) {
   it("order takes and makes", function() {
     var commands = [
-      ['Create', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Create', "client2", "201", "Sell @ 0.400", 200000, 'GTCNoGasTopup', 3],
-      ['Create', "client3", "301",  "Buy @ 0.500",  50000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201", "Sell @ 0.400", 200000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client3", "301",  "Buy @ 0.500",  50000, 'GTCNoGasTopup', 3],
     ];
     var expectedOrders = [
       ["101", 'Done', 'None', 100000,  50000],
@@ -461,8 +594,8 @@ contract('BookERC20EthV1', function(accounts) {
 contract('BookERC20EthV1', function(accounts) {
   it("minimal successful cancel order", function() {
     var commands = [
-      ['Create', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Cancel', "client1", "101"],
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['cancelOrder', "client1", "101"],
     ];
     var expectedOrders = [
       ["101", 'Done', 'ClientCancel', 0, 0],
@@ -477,11 +610,11 @@ contract('BookERC20EthV1', function(accounts) {
 contract('BookERC20EthV1', function(accounts) {
   it("cancel order among others then match", function() {
     var commands = [
-      ['Create', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Create', "client2", "201",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Create', "client3", "301",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Cancel', "client2", "201"],
-      ['Create', "client4", "401",  "Sell @ 0.500", 300000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client3", "301",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['cancelOrder', "client2", "201"],
+      ['createOrder', "client4", "401",  "Sell @ 0.500", 300000, 'GTCNoGasTopup', 3],
     ];
     var expectedOrders = [
       ["101", 'Done', 'None', 100000,  50000],
@@ -498,11 +631,11 @@ contract('BookERC20EthV1', function(accounts) {
 contract('BookERC20EthV1', function(accounts) {
   it("cancel order among others then match - variation with cancelled first", function() {
     var commands = [
-      ['Create', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Create', "client2", "201",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Create', "client3", "301",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Cancel', "client1", "101"],
-      ['Create', "client4", "401",  "Sell @ 0.500", 300000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client3", "301",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['cancelOrder', "client1", "101"],
+      ['createOrder', "client4", "401",  "Sell @ 0.500", 300000, 'GTCNoGasTopup', 3],
     ];
     var expectedOrders = [
       ["101", 'Done', 'ClientCancel', 0, 0],
@@ -519,11 +652,11 @@ contract('BookERC20EthV1', function(accounts) {
 contract('BookERC20EthV1', function(accounts) {
   it("cancel order among others then match - variation with cancelled last", function() {
     var commands = [
-      ['Create', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Create', "client2", "201",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Create', "client3", "301",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Cancel', "client3", "301"],
-      ['Create', "client4", "401",  "Sell @ 0.500", 300000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client3", "301",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['cancelOrder', "client3", "301"],
+      ['createOrder', "client4", "401",  "Sell @ 0.500", 300000, 'GTCNoGasTopup', 3],
     ];
     var expectedOrders = [
       ["101", 'Done', 'None', 100000,  50000],
@@ -540,10 +673,10 @@ contract('BookERC20EthV1', function(accounts) {
 contract('BookERC20EthV1', function(accounts) {
   it("cancel only order at price then match above", function() {
     var commands = [
-      ['Create', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Create', "client2", "201",  "Buy @ 0.600", 100000, 'GTCNoGasTopup', 3],
-      ['Cancel', "client2", "201"],
-      ['Create', "client3", "301",  "Sell @ 0.500", 300000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201",  "Buy @ 0.600", 100000, 'GTCNoGasTopup', 3],
+      ['cancelOrder', "client2", "201"],
+      ['createOrder', "client3", "301",  "Sell @ 0.500", 300000, 'GTCNoGasTopup', 3],
     ];
     var expectedOrders = [
       ["101", 'Done', 'None', 100000, 50000],
@@ -559,9 +692,9 @@ contract('BookERC20EthV1', function(accounts) {
 contract('BookERC20EthV1', function(accounts) {
   it("cancel completed order", function() {
     var commands = [
-      ['Create', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Create', "client2", "201",  "Sell @ 0.500", 300000, 'GTCNoGasTopup', 3],
-      ['Cancel', "client1", "101"],
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201",  "Sell @ 0.500", 300000, 'GTCNoGasTopup', 3],
+      ['cancelOrder', "client1", "101"],
     ];
     var expectedOrders = [
       ["101", 'Done', 'None', 100000, 50000],
@@ -577,9 +710,9 @@ contract('BookERC20EthV1', function(accounts) {
 contract('BookERC20EthV1', function(accounts) {
   it("cancel partially filled order", function() {
     var commands = [
-      ['Create', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Create', "client2", "201",  "Sell @ 0.500", 60000, 'GTCNoGasTopup', 3],
-      ['Cancel', "client1", "101"],
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201",  "Sell @ 0.500", 60000, 'GTCNoGasTopup', 3],
+      ['cancelOrder', "client1", "101"],
     ];
     var expectedOrders = [
       ["101", 'Done', 'ClientCancel', 60000, 30000],
@@ -595,9 +728,9 @@ contract('BookERC20EthV1', function(accounts) {
 contract('BookERC20EthV1', function(accounts) {
   it("enter needs gas state", function() {
     var commands = [
-      ['Create', "client1", "101", "Buy @ 0.500",  100000, 'GTCNoGasTopup', 3],
-      ['Create', "client1", "102", "Buy @ 0.500",  100000, 'GTCNoGasTopup', 3],
-      ['Create', "client2", "201", "Sell @ 0.500", 300000, 'GTCWithGasTopup', 1],
+      ['createOrder', "client1", "101", "Buy @ 0.500",  100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "102", "Buy @ 0.500",  100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201", "Sell @ 0.500", 300000, 'GTCWithGasTopup', 1],
     ];
     var expectedOrders = [
       ["101", 'Done', 'None', 100000,  50000],
@@ -613,10 +746,10 @@ contract('BookERC20EthV1', function(accounts) {
 contract('BookERC20EthV1', function(accounts) {
   it("minimal successful continue order", function() {
     var commands = [
-      ['Create', "client1", "101", "Buy @ 0.500",  100000, 'GTCNoGasTopup', 3],
-      ['Create', "client1", "102", "Buy @ 0.500",  100000, 'GTCNoGasTopup', 3],
-      ['Create', "client2", "201", "Sell @ 0.500", 300000, 'GTCWithGasTopup', 1],
-      ['Continue', "client2", "201", 1],
+      ['createOrder', "client1", "101", "Buy @ 0.500",  100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "102", "Buy @ 0.500",  100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201", "Sell @ 0.500", 300000, 'GTCWithGasTopup', 1],
+      ['continueOrder', "client2", "201", 1],
     ];
     var expectedOrders = [
       ["101", 'Done', 'None', 100000,  50000],
@@ -632,11 +765,11 @@ contract('BookERC20EthV1', function(accounts) {
 contract('BookERC20EthV1', function(accounts) {
   it("cancel needs gas order", function() {
     var commands = [
-      ['Create', "client1", "101",  "Buy @ 0.500", 20000, 'GTCNoGasTopup', 3],
-      ['Create', "client1", "102",  "Buy @ 0.500", 20000, 'GTCNoGasTopup', 3],
-      ['Create', "client1", "103",  "Buy @ 0.500", 20000, 'GTCNoGasTopup', 3],
-      ['Create', "client2", "201",  "Sell @ 0.500", 60000, 'GTCWithGasTopup', 1],
-      ['Cancel', "client2", "201"],
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 20000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "102",  "Buy @ 0.500", 20000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "103",  "Buy @ 0.500", 20000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201",  "Sell @ 0.500", 60000, 'GTCWithGasTopup', 1],
+      ['cancelOrder', "client2", "201"],
     ];
     var expectedOrders = [
       ["101", 'Done', 'None', 20000, 10000],
@@ -654,8 +787,8 @@ contract('BookERC20EthV1', function(accounts) {
 contract('BookERC20EthV1', function(accounts) {
   it("maker-only rejected if any would take", function() {
     var commands = [
-      ['Create', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Create', "client2", "201", "Sell @ 0.400", 200000, 'MakerOnly', 0]
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201", "Sell @ 0.400", 200000, 'MakerOnly', 0]
     ];
     var expectedOrders = [
       ["101", 'Open',     'None',      0,  0],
@@ -672,8 +805,8 @@ contract('BookERC20EthV1', function(accounts) {
 contract('UbiTokExchange', function(accounts) {
   it("maker-only accepted if none would take", function() {
     var commands = [
-      ['Create', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Create', "client2", "201", "Sell @ 0.600", 200000, 'MakerOnly', 0]
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201", "Sell @ 0.600", 200000, 'MakerOnly', 0]
     ];
     var expectedOrders = [
       ["101", 'Open', 'None', 0,  0],
@@ -690,8 +823,8 @@ contract('UbiTokExchange', function(accounts) {
 contract('BookERC20EthV1', function(accounts) {
   it("IoC cancelled if none would match", function() {
     var commands = [
-      ['Create', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Create', "client2", "201", "Sell @ 0.600", 200000, 'ImmediateOrCancel', 3]
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201", "Sell @ 0.600", 200000, 'ImmediateOrCancel', 3]
     ];
     var expectedOrders = [
       ["101", 'Open', 'None', 0,  0],
@@ -708,8 +841,8 @@ contract('BookERC20EthV1', function(accounts) {
 contract('BookERC20EthV1', function(accounts) {
   it("IoC completed if all matches", function() {
     var commands = [
-      ['Create', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Create', "client2", "201", "Sell @ 0.400",  50000, 'ImmediateOrCancel', 3]
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201", "Sell @ 0.400",  50000, 'ImmediateOrCancel', 3]
     ];
     var expectedOrders = [
       ["101", 'Open', 'None', 50000,  25000],
@@ -726,8 +859,8 @@ contract('BookERC20EthV1', function(accounts) {
 contract('BookERC20EthV1', function(accounts) {
   it("IoC remaining cancelled if some matches", function() {
     var commands = [
-      ['Create', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
-      ['Create', "client2", "201", "Sell @ 0.400", 200000, 'ImmediateOrCancel', 3]
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201", "Sell @ 0.400", 200000, 'ImmediateOrCancel', 3]
     ];
     var expectedOrders = [
       ["101", 'Done', 'None', 100000, 50000],
@@ -744,17 +877,17 @@ contract('BookERC20EthV1', function(accounts) {
 contract('BookERC20EthV1', function(accounts) {
   it("high gas usage", function() {
     var commands = [
-      ['Create', "client1", "101",  "Buy @ 0.00500", 2000000, 'GTCNoGasTopup', 3],
-      ['Create', "client1", "102",  "Buy @ 0.0100",  1000000, 'GTCNoGasTopup', 3],
-      ['Create', "client1", "103",  "Buy @ 0.0500",   200000, 'GTCNoGasTopup', 3],
-      ['Create', "client1", "104",  "Buy @ 0.100",    100000, 'GTCNoGasTopup', 3],
-      ['Create', "client1", "105",  "Buy @ 0.500",     20000, 'GTCNoGasTopup', 3],
-      ['Create', "client1", "106",  "Buy @ 1.000",     10000, 'GTCNoGasTopup', 3],
-      ['Create', "client1", "107",  "Buy @ 5.000",      2000, 'GTCNoGasTopup', 3],
-      ['Create', "client1", "108",  "Buy @ 10.000",     1000, 'GTCNoGasTopup', 3],
-      ['Create', "client1", "109",  "Buy @ 50.000",      200, 'GTCNoGasTopup', 3],
-      ['Create', "client1", "110",  "Buy @ 100.000",     100, 'GTCNoGasTopup', 3],
-      ['Create', "client2", "201", "Sell @ 0.0050",  4000000, 'GTCWithGasTopup', 12],
+      ['createOrder', "client1", "101",  "Buy @ 0.00500", 2000000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "102",  "Buy @ 0.0100",  1000000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "103",  "Buy @ 0.0500",   200000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "104",  "Buy @ 0.100",    100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "105",  "Buy @ 0.500",     20000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "106",  "Buy @ 1.000",     10000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "107",  "Buy @ 5.000",      2000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "108",  "Buy @ 10.000",     1000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "109",  "Buy @ 50.000",      200, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "110",  "Buy @ 100.000",     100, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201", "Sell @ 0.0050",  4000000, 'GTCWithGasTopup', 12],
     ];
     var expectedOrders = [
       ["201", 'Open', 'None', 3333300, 100000],

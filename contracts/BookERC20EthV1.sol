@@ -16,6 +16,8 @@ contract ERC20 {
 // Copyright (c) Bonnag Limited. All Rights Reserved.
 // WARNING: THIS CONTRACT IS STILL IN DEVELOPMENT, DO NOT USE FOR REAL MONEY.
 //
+// TODO - add quickBuy method?
+//
 contract BookERC20EthV1 {
 
   enum BookType {
