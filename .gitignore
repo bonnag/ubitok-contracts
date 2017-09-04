@@ -1,1 +1,4 @@
 report
+coverage.data
+node_modules
+reference-exchange.js
