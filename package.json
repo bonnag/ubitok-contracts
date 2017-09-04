@@ -1,0 +1,20 @@
+{
+  "name": "ubitok-contracts",
+  "version": "0.8.2",
+  "description": "UbiTok.io smart contracts and their tests",
+  "author": "Bonnag Limited",
+  "license": "Proprietary",
+  "private": true,
+  "scripts": {
+    "test": "truffle test && shx mkdir -p .nyc_output && shx mv coverage.data .nyc_output/ && shx cp ../ubitok-jslib/reference-exchange.js . && ./node_modules/.bin/nyc report --report-dir report --reporter=html"
+  },
+  "dependencies": {
+    "ubitok-jslib": "file:../ubitok-jslib",
+    "truffle": "^3.4.9",
+    "ethereumjs-testrpc": "^4.0.1",
+    "shx": "^0.2.2",
+    "chai": "^4.0.2",
+    "mocha": "^3.4.2",
+    "nyc": "^11.1.0"
+  }
+}
