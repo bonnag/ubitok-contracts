@@ -578,6 +578,24 @@ contract BookERC20EthV1 {
     return computeCntrAmountUsingUnpacked(baseAmount, mantissa, exponent);
   }
 
+  /* TODO
+  // Public Order Placement - all-in-one deposit, buy, and withdraw.
+  // Mostly intended for use by simple clients like MyEtherWallet.
+  //
+  function quickBuy(
+      uint128 orderId, uint16 price, uint sizeBase, Terms terms, uint maxMatches
+    ) public payable {
+    require(isBuyPrice(price));
+    depositCntr(); // TODO - is it safe to call internally like this?
+    createOrder(orderId, price, sizeBase, terms, maxMatches);
+    Order storage order = orderForOrderId[orderId];
+    uint returnsBase = order.executedBase - order.feesBaseOrCntr;
+    if (returnsBase > 0) {
+      transferBase(returnsBase);
+    }
+  }
+  */
+
   // Public Order Placement - create order and try to match it and/or add it to the book.
   //
   function createOrder(
