@@ -157,30 +157,44 @@ function runReferenceExchange(clients, commands) {
     );
   }
   for (var cmd of commands) {
-    if (cmd[0] === 'createOrder') {
-      rx.createOrder(cmd[1], cmd[2], cmd[3], new BigNumber(cmd[4]), cmd[5], cmd[6], cmd[7]);
-    } else if (cmd[0] === 'cancelOrder') {
-      rx.cancelOrder(cmd[1], cmd[2]);
-    } else if (cmd[0] === 'continueOrder') {
-      rx.continueOrder(cmd[1], cmd[2], cmd[3]);
-    } else if (cmd[0] === 'baseTokenApprove') {
-      rx.baseTokenApprove(cmd[1], cmd[2]);
-    } else if (cmd[0] === 'transferFromBase') {
-      rx.transferFromBase(cmd[1]);
-    } else if (cmd[0] === 'transferBase') {
-      rx.transferFromBase(cmd[1], cmd[2]);
-    } else if (cmd[0] === 'depositCntr') {
-      rx.depositCntr(cmd[1], cmd[2]);
-    } else if (cmd[0] === 'withdrawCntr') {
-      rx.withdrawCntr(cmd[1], cmd[2]);
-    } else if (cmd[0] === 'rwrdTokenApprove') {
-      rx.rwrdTokenApprove(cmd[1], cmd[2]);
-    } else if (cmd[0] === 'transferFromRwrd') {
-      rx.transferFromRwrd(cmd[1]);
-    } else if (cmd[0] === 'transferRwrd') {
-      rx.transferRwrd(cmd[1], cmd[2]);
-    } else {
-      throw new Error("unknown cmd " + cmd[1]);
+    var verb = cmd[0];
+    var expectFail = false;
+    if (verb.endsWith(':FAIL')) {
+      verb = verb.substr(0, verb.length - 5);
+      expectFail = true;
+    }
+    try {
+      if (verb === 'createOrder') {
+        rx.createOrder(cmd[1], cmd[2], cmd[3], new BigNumber(cmd[4]), cmd[5], cmd[6], cmd[7]);
+      } else if (verb === 'cancelOrder') {
+        rx.cancelOrder(cmd[1], cmd[2]);
+      } else if (verb === 'continueOrder') {
+        rx.continueOrder(cmd[1], cmd[2], cmd[3]);
+      } else if (verb === 'baseTokenApprove') {
+        rx.baseTokenApprove(cmd[1], cmd[2]);
+      } else if (verb === 'transferFromBase') {
+        rx.transferFromBase(cmd[1]);
+      } else if (verb === 'transferBase') {
+        rx.transferFromBase(cmd[1], cmd[2]);
+      } else if (verb === 'depositCntr') {
+        rx.depositCntr(cmd[1], cmd[2]);
+      } else if (verb === 'withdrawCntr') {
+        rx.withdrawCntr(cmd[1], cmd[2]);
+      } else if (verb === 'rwrdTokenApprove') {
+        rx.rwrdTokenApprove(cmd[1], cmd[2]);
+      } else if (verb === 'transferFromRwrd') {
+        rx.transferFromRwrd(cmd[1]);
+      } else if (verb === 'transferRwrd') {
+        rx.transferRwrd(cmd[1], cmd[2]);
+      } else {
+        throw new Error("unknown cmd " + cmd[1]);
+      }
+    } catch (e) {
+      if (expectFail) {
+        // fine
+      } else {
+        throw e;
+      }
     }
   }
   return rx;
@@ -248,7 +262,13 @@ function buildScenario(accounts, commands, expectedOrders, expectedBalanceChange
   // Make promises to run commands against contract
   var allCommands = setupCommands.concat(commands);
   for (var cmd of allCommands) {
-    if (cmd[0] === 'createOrder') {
+    var verb = cmd[0];
+    var expectFail = false;
+    if (verb.endsWith(':FAIL')) {
+      verb = verb.substr(0, verb.length - 5);
+      expectFail = true;
+    }
+    if (verb === 'createOrder') {
       chain = chain.then((function (ctx, a, c) {
         return function (lastResult) {
           return ctx.uut.createOrder(
@@ -261,7 +281,7 @@ function buildScenario(accounts, commands, expectedOrders, expectedBalanceChange
           );
         };
       }(context, accountIdForClient[cmd[1]], cmd)));
-    } else if (cmd[0] === 'cancelOrder') {
+    } else if (verb === 'cancelOrder') {
       chain = chain.then((function (ctx, a, c) {
         return function (lastResult) {
           return ctx.uut.cancelOrder(
@@ -270,7 +290,7 @@ function buildScenario(accounts, commands, expectedOrders, expectedBalanceChange
           );
         };
       }(context, accountIdForClient[cmd[1]], cmd)));
-    } else if (cmd[0] === 'continueOrder') {
+    } else if (verb === 'continueOrder') {
       chain = chain.then((function (ctx, a, c) {
         return function (lastResult) {
           return ctx.uut.continueOrder(
@@ -280,56 +300,61 @@ function buildScenario(accounts, commands, expectedOrders, expectedBalanceChange
           );
         };
       }(context, accountIdForClient[cmd[1]], cmd)));
-    } else if (cmd[0] === 'baseTokenApprove') {
+    } else if (verb === 'baseTokenApprove') {
       chain = chain.then((function (ctx, a, c) {
         return function (lastResult) {
           return ctx.testToken.approve(ctx.uut.address, c[2], {from: ctx.accounts[a]});
         };
       }(context, accountIdForClient[cmd[1]], cmd)));
-    } else if (cmd[0] === 'transferFromBase') {
+    } else if (verb === 'transferFromBase') {
       chain = chain.then((function (ctx, a, c) {
         return function (lastResult) {
           return ctx.uut.transferFromBase({from: ctx.accounts[a]});
         };
       }(context, accountIdForClient[cmd[1]], cmd)));
-    } else if (cmd[0] === 'transferBase') {
+    } else if (verb === 'transferBase') {
       chain = chain.then((function (ctx, a, c) {
         return function (lastResult) {
           return ctx.uut.transferBase(c[2], {from: ctx.accounts[a]});
         };
       }(context, accountIdForClient[cmd[1]], cmd)));
-    } else if (cmd[0] === 'depositCntr') {
+    } else if (verb === 'depositCntr') {
       chain = chain.then((function (ctx, a, c) {
         return function (lastResult) {
           return ctx.uut.depositCntr({from: ctx.accounts[a], value: c[2]});
         };
       }(context, accountIdForClient[cmd[1]], cmd)));
-    } else if (cmd[0] === 'withdrawCntr') {
+    } else if (verb === 'withdrawCntr') {
       chain = chain.then((function (ctx, a, c) {
         return function (lastResult) {
           return ctx.uut.withdrawCntr(c[2], {from: ctx.accounts[a]});
         };
       }(context, accountIdForClient[cmd[1]], cmd)));
-    } else if (cmd[0] === 'rwrdTokenApprove') {
+    } else if (verb === 'rwrdTokenApprove') {
       chain = chain.then((function (ctx, a, c) {
         return function (lastResult) {
           return ctx.rwrdToken.approve(ctx.uut.address, c[2], {from: ctx.accounts[a]});
         };
       }(context, accountIdForClient[cmd[1]], cmd)));
-    } else if (cmd[0] === 'transferFromRwrd') {
+    } else if (verb === 'transferFromRwrd') {
       chain = chain.then((function (ctx, a, c) {
         return function (lastResult) {
           return ctx.uut.transferFromRwrd({from: ctx.accounts[a]});
         };
       }(context, accountIdForClient[cmd[1]], cmd)));
-    } else if (cmd[0] === 'transferRwrd') {
+    } else if (verb === 'transferRwrd') {
       chain = chain.then((function (ctx, a, c) {
         return function (lastResult) {
           return ctx.uut.transferRwrd(c[2], {from: ctx.accounts[a]});
         };
       }(context, accountIdForClient[cmd[1]], cmd)));
     } else {
-      throw new Error('unknown command ' + cmd[0]);
+      throw new Error('unknown command ' + verb);
+    }
+    if (expectFail) {
+      chain = chain.then(assert.fail).catch(function(error) {
+        assert(error.message.indexOf('invalid opcode') >= 0, 'error should be a solidity throw, not ' + error);
+      });
     }
   }
   // Make promises to compare orders with scenario expectations
@@ -513,6 +538,26 @@ contract('BookERC20EthV1', function(accounts) {
 });
 
 contract('BookERC20EthV1', function(accounts) {
+  it("two orders exactly match, paying fees with UBI (taker receives base)", function() {
+    var commands = [
+      ['rwrdTokenApprove', "client2", optionalInitialBalanceRwrd],
+      ['transferFromRwrd', "client2"],
+      ['createOrder', "client1", "101", "Sell @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201", "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3]
+    ];
+    var expectedOrders = [
+      ["101", 'Done', 'None', 100000,  50000],
+      ["201", 'Done', 'None', 100000,  50000],
+    ];
+    var expectedBalanceChanges = [
+      ["client1", -100000, +50000],
+      ["client2", +100000, -50000, -2500]  // taker pays fee in UBI, not TEST (100 ETH * 0.05% * 50000)
+    ];
+    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+  });
+});
+
+contract('BookERC20EthV1', function(accounts) {
   it("two orders partial match of 2nd", function() {
     var commands = [
       ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
@@ -548,6 +593,25 @@ contract('BookERC20EthV1', function(accounts) {
   });
 });
 
+contract('BookERC20EthV1', function(accounts) {
+  it("two orders best execution, paying fees with UBI (taker receives counter)", function() {
+    var commands = [
+      ['rwrdTokenApprove', "client2", optionalInitialBalanceRwrd],
+      ['transferFromRwrd', "client2"],
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201", "Sell @ 0.400", 100000, 'GTCNoGasTopup', 3]
+    ];
+    var expectedOrders = [
+      ["101", 'Done', 'None', 100000,  50000],
+      ["201", 'Done', 'None', 100000,  50000],
+    ];
+    var expectedBalanceChanges = [
+      ["client1", +100000, -50000],
+      ["client2", -100000, +50000, -2500]  // taker pays fee in UBI, not ETH (100 * 0.05% * 50000)
+    ];
+    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+  });
+});
 
 contract('BookERC20EthV1', function(accounts) {
   it("three orders mixed prices", function() {
@@ -592,6 +656,46 @@ contract('BookERC20EthV1', function(accounts) {
 });
 
 contract('BookERC20EthV1', function(accounts) {
+  it("two orders dust prevention", function() {
+    var commands = [
+      // remaining is too small to leave in book:
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100200, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201", "Sell @ 0.500", 100000, 'GTCNoGasTopup', 3]
+    ];
+    var expectedOrders = [
+      ["101", 'Done', 'None', 100000,  50000],
+      ["201", 'Done', 'None', 100000,  50000],
+    ];
+    var expectedBalanceChanges = [
+      ["client1", +100000,  -50000],
+      ["client2", -100000,  +50000 * 0.9995]
+    ];
+    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+  });
+});
+
+contract('BookERC20EthV1', function(accounts) {
+  it("GTC without topup cancelled if max matches reached", function() {
+    var commands = [
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 20000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "102",  "Buy @ 0.500", 20000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "103",  "Buy @ 0.500", 20000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201",  "Sell @ 0.500", 60000, 'GTCNoGasTopup', 2]
+    ];
+    var expectedOrders = [
+      ["101", 'Done', 'None', 20000, 10000],
+      ["102", 'Done', 'None', 20000, 10000],
+      ["103", 'Open', 'None', 0, 0],
+      ["201", 'Done', 'TooManyMatches', 40000, 20000],
+    ];
+    var expectedBalanceChanges = [
+      ["client2", -40000, +20000 * 0.9995],
+    ];
+    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+  });
+});
+
+contract('BookERC20EthV1', function(accounts) {
   it("minimal successful cancel order", function() {
     var commands = [
       ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
@@ -602,6 +706,23 @@ contract('BookERC20EthV1', function(accounts) {
     ];
     var expectedBalanceChanges = [
       ["client1", 0, 0],
+    ];
+    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+  });
+});
+
+contract('BookERC20EthV1', function(accounts) {
+  it("cannot cancel someone elses order", function() {
+    var commands = [
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['cancelOrder:FAIL', "client2", "101"],
+    ];
+    var expectedOrders = [
+      ["101", 'Open', 'None', 0, 0],
+    ];
+    var expectedBalanceChanges = [
+      ["client1", 0, -50000],
+      ["client2", 0, 0],
     ];
     return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
   });
@@ -763,6 +884,45 @@ contract('BookERC20EthV1', function(accounts) {
 });
 
 contract('BookERC20EthV1', function(accounts) {
+  it("cannot continue someone elses order", function() {
+    var commands = [
+      ['createOrder', "client1", "101", "Buy @ 0.500",  100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "102", "Buy @ 0.500",  100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201", "Sell @ 0.500", 300000, 'GTCWithGasTopup', 1],
+      ['continueOrder:FAIL', "client1", "201", 1],
+    ];
+    var expectedOrders = [
+      ["101", 'Done', 'None', 100000,  50000],
+      ["102", 'Open', 'None', 0, 0],
+      ["201", 'NeedsGas', 'None', 100000, 50000],
+    ];
+    var expectedBalanceChanges = [
+      ["client1", 100000, -100000],
+      ["client2", -300000, 50000 * 0.9995],
+    ];
+    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+  });
+});
+
+contract('BookERC20EthV1', function(accounts) {
+  it("continue completed order does nothing", function() {
+    var commands = [
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201",  "Sell @ 0.500", 300000, 'GTCNoGasTopup', 3],
+      ['continueOrder', "client1", "101", 1],
+    ];
+    var expectedOrders = [
+      ["101", 'Done', 'None', 100000, 50000],
+      ["201", 'Open', 'None', 100000, 50000],
+    ];
+    var expectedBalanceChanges = [
+      ["client1", +100000, -50000],
+    ];
+    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+  });
+});
+
+contract('BookERC20EthV1', function(accounts) {
   it("cancel needs gas order", function() {
     var commands = [
       ['createOrder', "client1", "101",  "Buy @ 0.500", 20000, 'GTCNoGasTopup', 3],
@@ -779,6 +939,27 @@ contract('BookERC20EthV1', function(accounts) {
     ];
     var expectedBalanceChanges = [
       ["client2", -20000, +10000 * 0.9995],
+    ];
+    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+  });
+});
+
+contract('BookERC20EthV1', function(accounts) {
+  it("gtc with topup filled without needing more gas", function() {
+    var commands = [
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 20000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "102",  "Buy @ 0.500", 20000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "103",  "Buy @ 0.500", 20000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201",  "Sell @ 0.500", 60000, 'GTCWithGasTopup', 3],
+    ];
+    var expectedOrders = [
+      ["101", 'Done', 'None', 20000, 10000],
+      ["102", 'Done', 'None', 20000, 10000],
+      ["103", 'Done', 'None', 20000, 10000],
+      ["201", 'Done', 'None', 60000, 30000],
+    ];
+    var expectedBalanceChanges = [
+      ["client2", -60000, +30000 * 0.9995],
     ];
     return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
   });
@@ -869,6 +1050,27 @@ contract('BookERC20EthV1', function(accounts) {
     var expectedBalanceChanges = [
       ["client1",  100000, -50000],
       ["client2", -100000,  50000 * 0.9995]
+    ];
+    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+  });
+});
+
+contract('BookERC20EthV1', function(accounts) {
+  it("IoC cancelled if max matches reached", function() {
+    var commands = [
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 20000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "102",  "Buy @ 0.500", 20000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "103",  "Buy @ 0.500", 20000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201",  "Sell @ 0.500", 60000, 'ImmediateOrCancel', 2]
+    ];
+    var expectedOrders = [
+      ["101", 'Done', 'None', 20000, 10000],
+      ["102", 'Done', 'None', 20000, 10000],
+      ["103", 'Open', 'None', 0, 0],
+      ["201", 'Done', 'TooManyMatches', 40000, 20000],
+    ];
+    var expectedBalanceChanges = [
+      ["client2", -40000, +20000 * 0.9995],
     ];
     return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
   });
