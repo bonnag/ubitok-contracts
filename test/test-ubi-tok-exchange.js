@@ -656,11 +656,30 @@ contract('BookERC20EthV1', function(accounts) {
 });
 
 contract('BookERC20EthV1', function(accounts) {
-  it("two orders dust prevention", function() {
+  it("two orders - maker dust prevention", function() {
     var commands = [
-      // remaining is too small to leave in book:
-      ['createOrder', "client1", "101",  "Buy @ 0.500", 100200, 'GTCNoGasTopup', 3],
+      // remaining is too small to leave in book (note the 9):
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100009, 'GTCNoGasTopup', 3],
       ['createOrder', "client2", "201", "Sell @ 0.500", 100000, 'GTCNoGasTopup', 3]
+    ];
+    var expectedOrders = [
+      ["101", 'Done', 'None', 100000,  50000],
+      ["201", 'Done', 'None', 100000,  50000],
+    ];
+    var expectedBalanceChanges = [
+      ["client1", +100000,  -50000],
+      ["client2", -100000,  +50000 * 0.9995]
+    ];
+    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+  });
+});
+
+contract('BookERC20EthV1', function(accounts) {
+  it("two orders - taker dust prevention", function() {
+    var commands = [
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      // remaining is too small to leave in book (note the 9):
+      ['createOrder', "client2", "201", "Sell @ 0.500", 100009, 'GTCNoGasTopup', 3]
     ];
     var expectedOrders = [
       ["101", 'Done', 'None', 100000,  50000],
