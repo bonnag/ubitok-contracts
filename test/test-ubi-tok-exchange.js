@@ -694,6 +694,28 @@ contract('BookERC20EthV1', function(accounts) {
 });
 
 contract('BookERC20EthV1', function(accounts) {
+  it("two orders - taker dust prevention even if still matchable", function() {
+    var commands = [
+      ['createOrder', "client1", "101",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "102",  "Buy @ 0.500", 100000, 'GTCNoGasTopup', 3],
+      // after matching against the first, the remaining is too small to
+      // be worth the gas cost of matching against the second (note the 9):
+      ['createOrder', "client2", "201", "Sell @ 0.500", 100009, 'GTCNoGasTopup', 3]
+    ];
+    var expectedOrders = [
+      ["101", 'Done', 'None', 100000,  50000],
+      ["102", 'Open', 'None', 0, 0],
+      ["201", 'Done', 'None', 100000,  50000],
+    ];
+    var expectedBalanceChanges = [
+      ["client1", +100000,  -100000],
+      ["client2", -100000,  +50000 * 0.9995]
+    ];
+    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+  });
+});
+
+contract('BookERC20EthV1', function(accounts) {
   it("GTC without topup cancelled if max matches reached", function() {
     var commands = [
       ['createOrder', "client1", "101",  "Buy @ 0.500", 20000, 'GTCNoGasTopup', 3],

@@ -1017,6 +1017,10 @@ contract BookERC20EthV1 {
       matchBase = theirRemainingBase;
     }
     matchCntr = computeCntrAmountUsingPacked(matchBase, theirPrice);
+    // It may seem a bit odd to stop here if our remaining amount is very small -
+    // there could still be resting orders we can match it against. But the gas
+    // cost of matching each order is quite high - potentially high enough to
+    // wipe out the profit the taker hopes for from trading the tiny amount left.
     if ((ourRemainingBase - matchBase) < baseMinRemainingSize) {
       matchStopReason = MatchStopReason.Satisfied;
     } else {
