@@ -40,7 +40,7 @@ library SafeMath {
 /**
  * @title UbiTok.io Reward Token.
  *
- * @dev Implementation of the basic standard token, with a fixed supply owned by creator.
+ * @dev Implementation of the basic standard token, with a fixed supply initially owned by creator.
  * @dev https://github.com/ethereum/EIPs/issues/20
  * @dev Based on code by FirstBlood: https://github.com/Firstbloodio/token/blob/master/smart_contract/FirstBloodToken.sol
  * @dev Based on code by OpenZeppelin: https://github.com/OpenZeppelin/zeppelin-solidity
@@ -52,7 +52,7 @@ contract UbiRewardToken is ERC20 {
   string public name = "UbiTok.io Reward Token";
   string public symbol = "UBI";
   uint256 public decimals = 18;
-  uint256 public INITIAL_SUPPLY = 1000000 ether;
+  uint256 public INITIAL_SUPPLY = 12000000 ether;
 
   mapping(address => uint256) balances;
   mapping (address => mapping (address => uint256)) allowed;
@@ -94,10 +94,6 @@ contract UbiRewardToken is ERC20 {
    */
   function transferFrom(address _from, address _to, uint256 _value) returns (bool) {
     var _allowance = allowed[_from][msg.sender];
-
-    // Check is not needed because sub(_allowance, _value) will already throw if this condition is not met
-    // if (_value > _allowance) throw;
-
     balances[_to] = balances[_to].add(_value);
     balances[_from] = balances[_from].sub(_value);
     allowed[_from][msg.sender] = _allowance.sub(_value);
@@ -106,18 +102,16 @@ contract UbiRewardToken is ERC20 {
   }
 
   /**
-   * @dev Aprove the passed address to spend the specified amount of tokens on behalf of msg.sender.
+   * @dev Approve the passed address to spend the specified amount of tokens on behalf of msg.sender.
+   * Beware that changing an allowance with this method brings the risk that someone may use both the old
+   * and the new allowance by unfortunate transaction ordering. One possible solution to mitigate this
+   * race condition is to first reduce the spender's allowance to 0 and set the desired value afterwards:
+   * https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
+   * Also potentially surprising: the approver need not own the funds at the time of approval.
    * @param _spender The address which will spend the funds.
    * @param _value The amount of tokens to be spent.
    */
   function approve(address _spender, uint256 _value) returns (bool) {
-
-    // To change the approve amount you first have to reduce the addresses`
-    //  allowance to zero by calling `approve(_spender, 0)` if it is not
-    //  already 0 to mitigate the race condition described here:
-    //  https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
-    if ((_value != 0) && (allowed[msg.sender][_spender] != 0)) throw;
-
     allowed[msg.sender][_spender] = _value;
     Approval(msg.sender, _spender, _value);
     return true;
