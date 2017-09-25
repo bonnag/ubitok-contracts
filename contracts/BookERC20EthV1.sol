@@ -12,11 +12,8 @@ contract ERC20 {
   event Approval(address indexed _owner, address indexed _spender, uint _value);
 }
 
-// UbiTok.io limit order book with an ERC20 token as base, ETH as quoted, and standard fees.
+// UbiTok.io limit order book with an "nice" ERC20 token as base, ETH as quoted, and standard fees.
 // Copyright (c) Bonnag Limited. All Rights Reserved.
-// WARNING: THIS CONTRACT IS STILL IN DEVELOPMENT, DO NOT USE FOR REAL MONEY.
-//
-// TODO - add quickBuy method?
 //
 contract BookERC20EthV1 {
 
@@ -148,11 +145,11 @@ contract BookERC20EthV1 {
   ERC20 baseToken;
 
   // minimum order size (inclusive)
-  uint constant baseMinInitialSize = 100; // yes, far too small - testing only!
+  uint constant baseMinInitialSize = 100 finney;
 
   // if following partial match, the remaning gets smaller than this, remove from book and refund:
   // generally we make this 10% of baseMinInitialSize
-  uint constant baseMinRemainingSize = 10; // yes, far too small - testing only!
+  uint constant baseMinRemainingSize = 10 finney;
 
   // maximum order size (exclusive)
   // chosen so that even multiplied by the max price (or divided by the min price),
@@ -163,10 +160,10 @@ contract BookERC20EthV1 {
   uint constant baseMaxSize = 10 ** 30;
 
   // the counter currency (ETH)
+  // (no address because it is ETH)
 
-  // no address because it is ETH
-
-  uint constant cntrMinInitialSize = 10000; // yes, far too small - testing only!
+  // avoid the book getting cluttered up with tiny amounts not worth the gas
+  uint constant cntrMinInitialSize = 10 finney;
 
   // see comments for baseMaxSize
   uint constant cntrMaxSize = 10 ** 30;
@@ -176,7 +173,7 @@ contract BookERC20EthV1 {
   ERC20 rwrdToken;
 
   // used to convert ETH amount to reward tokens when paying fee with reward tokens
-  uint constant ethRwrdRate = 100;
+  uint constant ethRwrdRate = 1000;
   
   // funds that belong to clients (base, counter, and reward)
 
@@ -184,9 +181,10 @@ contract BookERC20EthV1 {
   mapping (address => uint) balanceCntrForClient;
   mapping (address => uint) balanceRwrdForClient;
 
-  // fee charged on liquidity taken in parts-per-ten-thousand
+  // fee charged on liquidity taken, expressed as a divisor
+  // (e.g. 2000 means 1/2000, or 0.05%)
 
-  uint constant feePer10K = 5;
+  uint constant feeDivisor = 2000;
   
   // fees charged are given to:
   
@@ -298,7 +296,7 @@ contract BookERC20EthV1 {
   function getBookInfo() public constant returns (
       BookType _bookType, address _baseToken, address _rwrdToken,
       uint _baseMinInitialSize, uint _cntrMinInitialSize,
-      uint _feePer10K, address _feeCollector
+      uint _feeDivisor, address _feeCollector
     ) {
     return (
       BookType.ERC20EthV1,
@@ -306,7 +304,7 @@ contract BookERC20EthV1 {
       address(rwrdToken),
       baseMinInitialSize,
       cntrMinInitialSize,
-      feePer10K,
+      feeDivisor,
       feeCollector
     );
   }
@@ -578,24 +576,6 @@ contract BookERC20EthV1 {
     return computeCntrAmountUsingUnpacked(baseAmount, mantissa, exponent);
   }
 
-  /* TODO
-  // Public Order Placement - all-in-one deposit, buy, and withdraw.
-  // Mostly intended for use by simple clients like MyEtherWallet.
-  //
-  function quickBuy(
-      uint128 orderId, uint16 price, uint sizeBase, Terms terms, uint maxMatches
-    ) public payable {
-    require(isBuyPrice(price));
-    depositCntr(); // TODO - is it safe to call internally like this?
-    createOrder(orderId, price, sizeBase, terms, maxMatches);
-    Order storage order = orderForOrderId[orderId];
-    uint returnsBase = order.executedBase - order.feesBaseOrCntr;
-    if (returnsBase > 0) {
-      transferBase(returnsBase);
-    }
-  }
-  */
-
   // Public Order Placement - create order and try to match it and/or add it to the book.
   //
   function createOrder(
@@ -718,7 +698,7 @@ contract BookERC20EthV1 {
     // at a fixed exchange rate.
     // Overflow safe since we ensure order size < 10^30 in both currencies (see baseMaxSize).
     // Can truncate to zero, which is fine.
-    uint feesRwrd = liquidityTakenCntr * feePer10K / 10000 * ethRwrdRate;
+    uint feesRwrd = liquidityTakenCntr / feeDivisor * ethRwrdRate;
     uint feesBaseOrCntr;
     address client = order.client;
     uint availRwrd = balanceRwrdForClient[client];
@@ -736,13 +716,13 @@ contract BookERC20EthV1 {
       }
     } else if (isBuyPrice(order.price)) {
       // See comments in branch above re: use of += and overflow safety.
-      feesBaseOrCntr = liquidityTakenBase * feePer10K / 10000;
+      feesBaseOrCntr = liquidityTakenBase / feeDivisor;
       balanceBaseForClient[order.client] += (liquidityTakenBase - feesBaseOrCntr);
       order.feesBaseOrCntr += uint128(feesBaseOrCntr);
       balanceBaseForClient[feeCollector] += feesBaseOrCntr;
     } else {
       // See comments in branch above re: use of += and overflow safety.
-      feesBaseOrCntr = liquidityTakenCntr * feePer10K / 10000;
+      feesBaseOrCntr = liquidityTakenCntr / feeDivisor;
       balanceCntrForClient[order.client] += (liquidityTakenCntr - feesBaseOrCntr);
       order.feesBaseOrCntr += uint128(feesBaseOrCntr);
       balanceCntrForClient[feeCollector] += feesBaseOrCntr;
