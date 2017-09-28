@@ -229,7 +229,7 @@ contract BookERC20EthV1 {
   //      0  = invalid (can be used as marker value)
   //      1  = buy at maximum price (0.999 * 10 ** 6)
   //    ...  = other buy prices in descending order
-  //   5401  = buy at 1.00
+  //   5400  = buy at 1.00
   //    ...  = other buy prices in descending order
   //  10800  = buy at minimum price (0.100 * 10 ** -5)
   //  10801  = sell at minimum price (0.100 * 10 ** -5)
