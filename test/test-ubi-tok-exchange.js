@@ -1,10 +1,5 @@
 // Main test suite for the UbiTok.io exchange contract.
 //
-// TODO - test payments fully
-// TODO - test paying fees with reward token
-// TODO - test events are raised ..
-// TODO - move over to BigNumber (or ether amounts as strings) throughout
-//
 
 var BookERC20EthV1 = artifacts.require('BookERC20EthV1.sol');
 var TestToken = artifacts.require('TestToken.sol');
@@ -132,7 +127,7 @@ contract('BookERC20EthV1 - ERC20 payments', function(accounts) {
 });
 
 var standardInitialBalanceBase = web3.toWei(500000, 'finney');
-var standardInitialBalanceCntr = web3.toWei(10000, 'finney');
+var standardInitialBalanceCntr = web3.toWei(12000, 'finney');
 var optionalInitialBalanceRwrd = new BigNumber(web3.toWei(10000, 'finney'));
 
 var standardInitialBalances = {
@@ -1139,12 +1134,12 @@ contract('BookERC20EthV1', function(accounts) {
       ['createOrder', "client1", "107",  "Buy @ 5.000",    "0.20", 'GTCNoGasTopup', 3],
       ['createOrder', "client1", "108",  "Buy @ 10.000",   "0.10", 'GTCNoGasTopup', 3],
       ['createOrder', "client1", "109",  "Buy @ 5.010",    "0.20", 'GTCNoGasTopup', 3],
-      // TODO - HMM ARE WE RUNNING OUT HERE?
       ['createOrder', "client1", "110",  "Buy @ 10.100",   "0.10", 'GTCNoGasTopup', 3],
       ['createOrder', "client2", "201", "Sell @ 0.0050", "400.00", 'GTCWithGasTopup', 12],
     ];
     var expectedOrders = [
-      ["201", 'Open', 'None', "333.6", "10.00"],
+      ["110", 'Done', 'None', "0.10", "1.01"],
+      ["201", 'Open', 'None', "333.6", "10.012"],
     ];
     var expectedBalanceChanges = [
     ];
@@ -1152,6 +1147,122 @@ contract('BookERC20EthV1', function(accounts) {
   });
 });
 
-// TODO - white-box nasty edge cases re: bitmasks
-// TODO - white-box nasty edge cases re: last order at price
+contract('BookERC20EthV1', function(accounts) {
+  it("orders with best execution and replenishment near bitmap boundaries", function() {
+    // "Buy @ 1.24" packs to 5376, which is a multiple of 256.
+    // By placing orders at 1.23, 1.24, 1.25 we're right at the start/end of bitmap
+    // words in our special Solidity order book representation.
+    var commands = [
+      ['createOrder', "client1", "101",  "Buy @ 1.23", "1.000", 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "102",  "Buy @ 1.24", "1.000", 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "103",  "Buy @ 1.25", "1.000", 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201", "Sell @ 1.20", "3.000", 'GTCNoGasTopup', 3],
+      // just in case something not cleared from bitmap
+      ['createOrder', "client2", "202", "Sell @ 1.20", "3.000", 'GTCNoGasTopup', 3],
+      ['cancelOrder', "client2", "202"],
+      // use the same price levels again (just in case something odd)
+      ['createOrder', "client1", "111",  "Buy @ 1.23", "1.000", 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "112",  "Buy @ 1.24", "1.000", 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "113",  "Buy @ 1.25", "1.000", 'GTCNoGasTopup', 3],
+      // sell at much more generous price in different bitmap word
+      ['createOrder', "client2", "203", "Sell @ 0.100", "3.000", 'GTCNoGasTopup', 3],
+    ];
+    var expectedOrders = [
+      ["101", 'Done', 'None', "1.000", "1.230"],
+      ["102", 'Done', 'None', "1.000", "1.240"],
+      ["103", 'Done', 'None', "1.000", "1.250"],
+      ["201", 'Done', 'None', "3.000", "3.720"],
+      ["202", 'Done', 'ClientCancel', "0.000", "0.000"],
+      ["111", 'Done', 'None', "1.000", "1.230"],
+      ["112", 'Done', 'None', "1.000", "1.240"],
+      ["113", 'Done', 'None', "1.000", "1.250"],
+      ["203", 'Done', 'None', "3.000", "3.720"]
+    ];
+    var expectedBalanceChanges = [
+      ["client1", "+6.000", "-7.440"],
+      ["client2", "-6.000", "+7.43628"]
+    ];
+    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+  });
+});
 
+contract('BookERC20EthV1', function(accounts) {
+  // could argue this either way - but it seems most helpful to
+  // the client to treat this as "Done" rather than TooManyMatches.
+  it("max matches reached at same time as taker dust prevention", function() {
+    var commands = [
+      ['createOrder', "client1", "101",  "Buy @ 0.500",  "0.200", 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "102",  "Buy @ 0.500",  "0.200", 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "103",  "Buy @ 0.500",  "0.200", 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201",  "Sell @ 0.500", "0.4001", 'GTCNoGasTopup', 2],
+      // make sure nothing left in bad state
+      ['createOrder', "client3", "301",  "Sell @ 0.500", "0.300", 'GTCNoGasTopup', 1]
+    ];
+    var expectedOrders = [
+      ["101", 'Done', 'None', "0.200", "0.100"],
+      ["102", 'Done', 'None', "0.200", "0.100"],
+      ["103", 'Done', 'None', "0.200", "0.100"],
+      ["201", 'Done', 'None', "0.400", "0.200"],
+      ["301", 'Open', 'None', "0.200", "0.100"],
+    ];
+    var expectedBalanceChanges = [
+      ["client2", "-0.400", "+0.1999"],
+    ];
+    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+  });
+});
+
+contract('BookERC20EthV1', function(accounts) {
+  // somewhat counter-intuitive but makes sense not to pay gas to match dust
+  it("taker dust prevention when another order matchable", function() {
+    var commands = [
+      ['createOrder', "client1", "101",  "Buy @ 0.500",  "0.200", 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "102",  "Buy @ 0.500",  "0.200", 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "103",  "Buy @ 0.500",  "0.200", 'GTCNoGasTopup', 3],
+      // unlike last scenario max matches is high enough to take a nibble out of 103 ..
+      // .. but we don't
+      ['createOrder', "client2", "201",  "Sell @ 0.500", "0.4001", 'GTCNoGasTopup', 5],
+    ];
+    var expectedOrders = [
+      ["101", 'Done', 'None', "0.200", "0.100"],
+      ["102", 'Done', 'None', "0.200", "0.100"],
+      ["103", 'Open', 'None', "0.0", "0.0"],
+      ["201", 'Done', 'None', "0.400", "0.200"],
+    ];
+    var expectedBalanceChanges = [
+      ["client2", "-0.400", "+0.1999"],
+    ];
+    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+  });
+});
+
+contract('BookERC20EthV1', function(accounts) {
+  it("max matches reached at same time as resting dust prevention", function() {
+    var commands = [
+      ['createOrder', "client1", "101",  "Buy @ 0.500",  "0.200", 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "102",  "Buy @ 0.500",  "0.2001", 'GTCNoGasTopup', 3],
+      ['createOrder', "client1", "103",  "Buy @ 0.500",  "0.200", 'GTCNoGasTopup', 3],
+      ['createOrder', "client2", "201",  "Sell @ 0.500", "0.400", 'GTCNoGasTopup', 2],
+      // make sure nothing left in bad state
+      ['createOrder', "client3", "301",  "Sell @ 0.500", "0.300", 'GTCNoGasTopup', 1]
+    ];
+    var expectedOrders = [
+      ["101", 'Done', 'None', "0.200", "0.100"],
+      ["102", 'Done', 'None', "0.200", "0.100"],
+      ["103", 'Done', 'None', "0.200", "0.100"],
+      ["201", 'Done', 'None', "0.400", "0.200"],
+      ["301", 'Open', 'None', "0.200", "0.100"],
+    ];
+    var expectedBalanceChanges = [
+      ["client1", "+0.600", "-0.300"],
+      ["client2", "-0.400", "+0.1999"],
+    ];
+    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+  });
+});
+
+// TODO - more white-box nasty edge cases re: bitmasks?
+// TODO - more white-box nasty edge cases re: last order at price?
+// TODO - potential problems around fee calc, overflow?
+// TODO - orders at max/min price?
+// TODO - correct events being fired !!!
