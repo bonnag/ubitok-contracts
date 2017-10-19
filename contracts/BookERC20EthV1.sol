@@ -12,7 +12,8 @@ contract ERC20 {
   event Approval(address indexed _owner, address indexed _spender, uint _value);
 }
 
-// UbiTok.io limit order book with an "nice" ERC20 token as base, ETH as quoted, and standard fees.
+// UbiTok.io on-chain continuous limit order book matching engine.
+// This variation is for a "nice" ERC20 token as base, ETH as quoted, and standard fees with reward token.
 // Copyright (c) Bonnag Limited. All Rights Reserved.
 //
 contract BookERC20EthV1 {
@@ -85,6 +86,11 @@ contract BookERC20EthV1 {
     uint128 prevOrderId;
   }
   
+  // It should be possible to reconstruct the expected state of the contract given:
+  //  - ClientPaymentEvent log history
+  //  - ClientOrderEvent log history
+  //  - Calling getOrder for the other immutable order fields of orders referenced by ClientOrderEvent
+  
   enum ClientPaymentEventType {
     Deposit,
     Withdraw,
@@ -114,7 +120,8 @@ contract BookERC20EthV1 {
   event ClientOrderEvent(
     address indexed client,
     ClientOrderEventType clientOrderEventType,
-    uint128 orderId
+    uint128 orderId,
+    uint maxMatches
   );
 
   enum MarketOrderEventType {
@@ -129,8 +136,9 @@ contract BookERC20EthV1 {
     PartialFill
   }
 
-  // these events can be used to build an order book or watch for fills
-  // note that the orderId and price are those of the maker
+  // Technically not needed but these events can be used to maintain an order book or
+  // watch for fills. Note that the orderId and price are those of the maker.
+
   event MarketOrderEvent(
     uint256 indexed eventTimestamp,
     uint128 indexed orderId,
@@ -583,7 +591,7 @@ contract BookERC20EthV1 {
     ) public {
     address client = msg.sender;
     require(client != 0 && orderId != 0 && orderForOrderId[orderId].client == 0);
-    ClientOrderEvent(client, ClientOrderEventType.Create, orderId);
+    ClientOrderEvent(client, ClientOrderEventType.Create, orderId, maxMatches);
     orderForOrderId[orderId] =
       Order(client, price, sizeBase, terms, Status.Unknown, ReasonCode.None, 0, 0, 0, 0);
     uint128 previousMostRecentOrderIdForClient = mostRecentOrderIdForClient[client];
@@ -630,6 +638,7 @@ contract BookERC20EthV1 {
     if (status != Status.Open && status != Status.NeedsGas) {
       return;
     }
+    ClientOrderEvent(client, ClientOrderEventType.Cancel, orderId, 0);
     if (status == Status.Open) {
       removeOpenOrderFromBook(orderId);
       MarketOrderEvent(block.timestamp, orderId, MarketOrderEventType.Remove, order.price,
@@ -647,6 +656,7 @@ contract BookERC20EthV1 {
     if (order.status != Status.NeedsGas) {
       return;
     }
+    ClientOrderEvent(client, ClientOrderEventType.Continue, orderId, maxMatches);
     order.status = Status.Unknown;
     processOrder(orderId, maxMatches);
   }

@@ -210,7 +210,7 @@ function assertEqualDelta(actualWeiAfter, knownWeiBefore, expectedEth, desc) {
 // runs through the commands, then checks the orders, book and balances are as
 // specified in the scenario and same as the reference exchange at the end.
 
-function buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges) {
+function buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges, expectedLogEvents) {
   var context = {};
   context.accounts = accounts;
   var chain = BookERC20EthV1.deployed().then(function(instance) {
@@ -395,6 +395,58 @@ function buildScenario(accounts, commands, expectedOrders, expectedBalanceChange
       };
     }(context, accountIdForClient[client], expectedBalanceChange)));
   }
+  // Make promise to check log events if given
+  // Note we won't raise an error if other log events happen ...
+  if (expectedLogEvents) {
+    chain = chain.then((function (ctx) {
+      // sigh this is silly
+      return function (lastResult) {
+        return new Promise(function(resolve, reject) {
+          ctx.uut.allEvents({fromBlock:"1", toBlock:"pending"}).get(
+            function (err, res) {
+              if (err) {
+                reject(err);
+              } else {
+                resolve(res);
+              }
+            }
+          );
+        });
+      }
+    }(context)));
+    chain = chain.then((function (ctx, eles) {
+      return function (lastResult) {
+        ales = lastResult;
+        for (var ele of eles) {
+          if (ele.args.client) {
+            var address = ctx.accounts[accountIdForClient[ele.args.client]];
+            if (address) {
+              ele.args.client = address;
+            }
+          }
+          var checkKeys = Object.keys(ele.args).sort();
+          var found = false;
+          for (var ale of ales) {
+            if (ele.event !== ale.event) {
+              continue;
+            }
+            // TODO - sadly not sure how reliable for BigNumbers?
+            if (JSON.stringify(ele.args, checkKeys) !==
+                JSON.stringify(ale.args, checkKeys)) {
+              continue;
+            }
+            found = true;
+            break;
+          }
+          if (!found) {
+            console.log("expected:", JSON.stringify(ele.args, checkKeys));
+            console.log("actual log events:",  JSON.stringify(ales, null, 4));
+            assert.fail("failed to generate expected log event: " + ele)
+          }
+        }
+      };
+    }(context, expectedLogEvents)));
+  }
   // Make promises to compare orders with reference orders
   for (var orderId of orderIds) {
     var refOrder = referenceExchange.getOrder(orderId);
@@ -488,54 +540,6 @@ function buildScenario(accounts, commands, expectedOrders, expectedBalanceChange
   return chain;
 }
 
-contract('BookERC20EthV1', function(accounts) {
-  it("real-life example", function() {
-    var commands = [
-      /*(01)*/ ['createOrder', "xfefc", "101",  "Sell @ 0.0330",  "20.0", 'GTCNoGasTopup', 3],
-      /*(02)*/ ['createOrder', "xfefc", "102",  "Buy @ 0.0320",  "3.0", 'GTCNoGasTopup', 3],
-      /*(03)*/ ['createOrder', "xeb19", "103",  "Buy @ 0.0330",  "1.25", 'ImmediateOrCancel', 3],
-      /*(04)*/ ['createOrder', "xeb19", "104",  "Sell @ 0.0399",  "1.0", 'GTCNoGasTopup', 3],
-      /*(05)*/ ['createOrder', "xeb19", "105",  "Buy @ 0.0300",  "5.0", 'GTCNoGasTopup', 3],
-      /*(06)*/ ['createOrder', "x8197", "106",  "Buy @ 0.0220",  "2.0", 'GTCNoGasTopup', 3],
-      /*(07)*/ ['cancelOrder', "xfefc", "102"],
-      /*(08)*/ ['createOrder', "xfefc", "108",  "Buy @ 0.0305",  "3.0", 'GTCNoGasTopup', 3],
-      /*(09)*/ ['createOrder', "xfefc", "109",  "Buy @ 0.0305",  "1.0", 'GTCNoGasTopup', 3],
-      /*(10)*/ ['cancelOrder', "xfefc", "109"],
-      /*(11)*/ ['cancelOrder', "xfefc", "108"],
-      /*(12)*/ ['createOrder', "xfefc", "112",  "Buy @ 0.0250",  "5.0", 'MakerOnly', 0],
-      /*(13)*/ ['cancelOrder', "xeb19", "105"],
-      /*(14)*/ ['createOrder', "xeb19", "114",  "Buy @ 0.0250",  "3.0", 'GTCNoGasTopup', 3],
-      /*(15)*/ ['createOrder', "xeb19", "115",  "Buy @ 0.0240",  "0.5", 'MakerOnly', 0],
-      /*(16)*/ ['createOrder', "x8152", "116",  "Buy @ 0.0330",  "6.0", 'ImmediateOrCancel', 3],
-      /*(17)*/ ['createOrder', "x8152", "117",  "Buy @ 0.0330",  "4.0", 'GTCNoGasTopup', 3],
-      /*(18)*/ ['cancelOrder', "xfefc", "101"],
-      /*(19)*/ ['createOrder', "xfefc", "119",  "Sell @ 0.0295",  "8.75", 'MakerOnly', 0],
-      /*(20)*/ ['cancelOrder', "xfefc", "112"],
-      /*(21)*/ ['createOrder', "xfefc", "121",  "Buy @ 0.0330",  "10.0", 'MakerOnly', 0],
-      /*(22)*/ ['createOrder', "x8152", "122",  "Sell @ 0.0265",  "5.0", 'MakerOnly', 0],
-      /*(23)*/ ['createOrder', "x8152", "123",  "Buy @ 0.0250",  "2.0", 'MakerOnly', 0],
-      /*(24)*/ ['createOrder', "xfefc", "124",  "Buy @ 0.0245",  "1.0", 'MakerOnly', 0],
-      /*(25)*/ ['createOrder', "xfefc", "125",  "Buy @ 0.0246",  "2.0", 'MakerOnly', 0],
-      /*(26)*/ ['cancelOrder', "x8152", "123"],
-      /*(27)*/ ['cancelOrder', "xeb19", "114"],
-      /*(28)*/ ['cancelOrder', "xeb19", "115"],
-      /*(29)*/ ['cancelOrder', "xfefc", "125"],
-      /*(30)*/ ['cancelOrder', "xfefc", "124"],
-      /*(31)*/ ['createOrder', "x8152", "131",  "Buy @ 0.0200",  "20.0", 'MakerOnly', 0],
-      /*(32)*/ ['createOrder', "x9991", "132",  "Sell @ 0.0025", "10.0", 'MakerOnly', 0],
-      /*(33)*/ ['createOrder', "x9991", "133",  "Sell @ 0.0250", "10.0", 'MakerOnly', 0]
-    ];
-    var expectedOrders = [
-      ["133", 'Open', 'None', 0, 0]
-    ];
-    var expectedBalanceChanges = [
-    ];
-    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
-  });
-});
-
-if (true) {
-
 contract('BookERC20EthV1 - scenarios', function(accounts) {
   it("two orders that don't match", function() {
     var commands = [
@@ -550,7 +554,15 @@ contract('BookERC20EthV1 - scenarios', function(accounts) {
       ["client1", +0, "-0.500"],
       ["client2", "-1.000",  0]
     ];
-    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+    var expectedLogEvents = [
+      {event: "ClientOrderEvent", args: {
+        client: "client1",
+        clientOrderEventType: new BigNumber(0),
+        orderId: new BigNumber(101),
+        maxMatches: new BigNumber(3)
+      }}
+    ];
+    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges, expectedLogEvents);
   });
 });
 
@@ -568,10 +580,67 @@ contract('BookERC20EthV1', function(accounts) {
       ["client1", "+1.000", "-0.500"],
       ["client2", "-1.000", "+0.49975"]  // taker pays fee
     ];
-    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+    var expectedLogEvents = [
+      {event: "MarketOrderEvent", args: {
+        orderId: new BigNumber(101),
+        marketOrderEventType: new BigNumber(2),
+        price: new BigNumber(UbiTokTypes.encodePrice("Buy @ 0.500")),
+        depthBase: UbiTokTypes.encodeBaseAmount("1.0"),
+        tradeBase: UbiTokTypes.encodeBaseAmount("1.0")
+      }}
+    ];
+    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges, expectedLogEvents);
   });
 });
 
+if (true) {
+
+  contract('BookERC20EthV1', function(accounts) {
+    it("real-life example", function() {
+      var commands = [
+        /*(01)*/ ['createOrder', "xfefc", "101",  "Sell @ 0.0330",  "20.0", 'GTCNoGasTopup', 3],
+        /*(02)*/ ['createOrder', "xfefc", "102",  "Buy @ 0.0320",  "3.0", 'GTCNoGasTopup', 3],
+        /*(03)*/ ['createOrder', "xeb19", "103",  "Buy @ 0.0330",  "1.25", 'ImmediateOrCancel', 3],
+        /*(04)*/ ['createOrder', "xeb19", "104",  "Sell @ 0.0399",  "1.0", 'GTCNoGasTopup', 3],
+        /*(05)*/ ['createOrder', "xeb19", "105",  "Buy @ 0.0300",  "5.0", 'GTCNoGasTopup', 3],
+        /*(06)*/ ['createOrder', "x8197", "106",  "Buy @ 0.0220",  "2.0", 'GTCNoGasTopup', 3],
+        /*(07)*/ ['cancelOrder', "xfefc", "102"],
+        /*(08)*/ ['createOrder', "xfefc", "108",  "Buy @ 0.0305",  "3.0", 'GTCNoGasTopup', 3],
+        /*(09)*/ ['createOrder', "xfefc", "109",  "Buy @ 0.0305",  "1.0", 'GTCNoGasTopup', 3],
+        /*(10)*/ ['cancelOrder', "xfefc", "109"],
+        /*(11)*/ ['cancelOrder', "xfefc", "108"],
+        /*(12)*/ ['createOrder', "xfefc", "112",  "Buy @ 0.0250",  "5.0", 'MakerOnly', 0],
+        /*(13)*/ ['cancelOrder', "xeb19", "105"],
+        /*(14)*/ ['createOrder', "xeb19", "114",  "Buy @ 0.0250",  "3.0", 'GTCNoGasTopup', 3],
+        /*(15)*/ ['createOrder', "xeb19", "115",  "Buy @ 0.0240",  "0.5", 'MakerOnly', 0],
+        /*(16)*/ ['createOrder', "x8152", "116",  "Buy @ 0.0330",  "6.0", 'ImmediateOrCancel', 3],
+        /*(17)*/ ['createOrder', "x8152", "117",  "Buy @ 0.0330",  "4.0", 'GTCNoGasTopup', 3],
+        /*(18)*/ ['cancelOrder', "xfefc", "101"],
+        /*(19)*/ ['createOrder', "xfefc", "119",  "Sell @ 0.0295",  "8.75", 'MakerOnly', 0],
+        /*(20)*/ ['cancelOrder', "xfefc", "112"],
+        /*(21)*/ ['createOrder', "xfefc", "121",  "Buy @ 0.0330",  "10.0", 'MakerOnly', 0],
+        /*(22)*/ ['createOrder', "x8152", "122",  "Sell @ 0.0265",  "5.0", 'MakerOnly', 0],
+        /*(23)*/ ['createOrder', "x8152", "123",  "Buy @ 0.0250",  "2.0", 'MakerOnly', 0],
+        /*(24)*/ ['createOrder', "xfefc", "124",  "Buy @ 0.0245",  "1.0", 'MakerOnly', 0],
+        /*(25)*/ ['createOrder', "xfefc", "125",  "Buy @ 0.0246",  "2.0", 'MakerOnly', 0],
+        /*(26)*/ ['cancelOrder', "x8152", "123"],
+        /*(27)*/ ['cancelOrder', "xeb19", "114"],
+        /*(28)*/ ['cancelOrder', "xeb19", "115"],
+        /*(29)*/ ['cancelOrder', "xfefc", "125"],
+        /*(30)*/ ['cancelOrder', "xfefc", "124"],
+        /*(31)*/ ['createOrder', "x8152", "131",  "Buy @ 0.0200",  "20.0", 'MakerOnly', 0],
+        /*(32)*/ ['createOrder', "x9991", "132",  "Sell @ 0.0025", "10.0", 'MakerOnly', 0],
+        /*(33)*/ ['createOrder', "x9991", "133",  "Sell @ 0.0250", "10.0", 'MakerOnly', 0]
+      ];
+      var expectedOrders = [
+        ["133", 'Open', 'None', 0, 0]
+      ];
+      var expectedBalanceChanges = [
+      ];
+      return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+    });
+  });
+  
 contract('BookERC20EthV1', function(accounts) {
   it("two orders exactly match, paying fees with UBI (taker receives counter)", function() {
     var commands = [
@@ -588,7 +657,15 @@ contract('BookERC20EthV1', function(accounts) {
       ["client1", "+1.000", "-0.500"],
       ["client2", "-1.000", "+0.500", "-0.25"]  // taker pays fee in UBI, not ETH (1000 * 0.05% * 0.500 ETH)
     ];
-    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+    var expectedLogEvents = [
+      {event: "ClientPaymentEvent", args: {
+        client: "client2",
+        clientPaymentEventType: new BigNumber(2), // transfer from
+        balanceType: new BigNumber(2), // reward
+        clientBalanceDelta: optionalInitialBalanceRwrd
+      }}
+    ];
+    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges, expectedLogEvents);
   });
 });
 
@@ -803,7 +880,22 @@ contract('BookERC20EthV1', function(accounts) {
     var expectedBalanceChanges = [
       ["client1", 0, 0],
     ];
-    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+    var expectedLogEvents = [
+      {event: "ClientOrderEvent", args: {
+        client: "client1",
+        clientOrderEventType: new BigNumber(2), // cancel
+        orderId: new BigNumber(101),
+        maxMatches: new BigNumber(0)
+      }},
+      {event: "MarketOrderEvent", args: {
+        orderId: new BigNumber(101),
+        marketOrderEventType: new BigNumber(1), // remove
+        price: new BigNumber(UbiTokTypes.encodePrice("Buy @ 0.500")),
+        depthBase: UbiTokTypes.encodeBaseAmount("1.0"),
+        tradeBase: UbiTokTypes.encodeBaseAmount("0.0")
+      }}
+    ];
+    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges, expectedLogEvents);
   });
 });
 
@@ -975,7 +1067,15 @@ contract('BookERC20EthV1', function(accounts) {
     ];
     var expectedBalanceChanges = [
     ];
-    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+    var expectedLogEvents = [
+      {event: "ClientOrderEvent", args: {
+        client: "client2",
+        clientOrderEventType: new BigNumber(1), // continue
+        orderId: new BigNumber(201),
+        maxMatches: new BigNumber(1)
+      }}
+    ];
+    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges, expectedLogEvents);
   });
 });
 
@@ -1307,7 +1407,16 @@ contract('BookERC20EthV1', function(accounts) {
       ["client1", "+0.600", "-0.300"],
       ["client2", "-0.400", "+0.1999"],
     ];
-    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges);
+    var expectedLogEvents = [
+      {event: "MarketOrderEvent", args: {
+        orderId: new BigNumber(102),
+        marketOrderEventType: new BigNumber(2), // complete fill
+        price: new BigNumber(UbiTokTypes.encodePrice("Buy @ 0.500")),
+        depthBase: UbiTokTypes.encodeBaseAmount("0.2001"),
+        tradeBase: UbiTokTypes.encodeBaseAmount("0.200")
+      }}
+    ];
+    return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges, expectedLogEvents);
   });
 });
 
@@ -1315,5 +1424,4 @@ contract('BookERC20EthV1', function(accounts) {
 // TODO - more white-box nasty edge cases re: last order at price?
 // TODO - potential problems around fee calc, overflow?
 // TODO - orders at max/min price?
-// TODO - correct events being fired !!!
 }
