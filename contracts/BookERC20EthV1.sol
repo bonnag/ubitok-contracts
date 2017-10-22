@@ -15,6 +15,7 @@ contract ERC20 {
 // UbiTok.io on-chain continuous limit order book matching engine.
 // This variation is for a "nice" ERC20 token as base, ETH as quoted, and standard fees with reward token.
 // Copyright (c) Bonnag Limited. All Rights Reserved.
+// Version 1.0.0.
 //
 contract BookERC20EthV1 {
 
@@ -590,7 +591,7 @@ contract BookERC20EthV1 {
       uint128 orderId, uint16 price, uint sizeBase, Terms terms, uint maxMatches
     ) public {
     address client = msg.sender;
-    require(client != 0 && orderId != 0 && orderForOrderId[orderId].client == 0);
+    require(orderId != 0 && orderForOrderId[orderId].client == 0);
     ClientOrderEvent(client, ClientOrderEventType.Create, orderId, maxMatches);
     orderForOrderId[orderId] =
       Order(client, price, sizeBase, terms, Status.Unknown, ReasonCode.None, 0, 0, 0, 0);
@@ -822,6 +823,8 @@ contract BookERC20EthV1 {
   //
   // matchStopReason returned will be one of MaxMatches, Satisfied or BookExhausted.
   //
+  // Calling with maxMatches == 0 is ok - and expected when the order is a maker-only order.
+  //
   function matchAgainstBook(
       uint128 orderId, uint theirPriceStart, uint theirPriceEnd, uint maxMatches
     ) internal returns (
@@ -865,6 +868,7 @@ contract BookERC20EthV1 {
           if (matchStopReason == MatchStopReason.PriceExhausted) {
             matchStopReason = MatchStopReason.None;
           } else if (matchStopReason != MatchStopReason.None) {
+            // we might still have changes in dbm to write back - see later
             break;
           }
         }

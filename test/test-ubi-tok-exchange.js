@@ -126,6 +126,68 @@ contract('BookERC20EthV1 - ERC20 payments', function(accounts) {
   });
 });
 
+contract('BookERC20EthV1 - ERC20 payments', function(accounts) {
+  it("failed deposit with approve + transferFrom", function() {
+    var uut;
+    var testToken;
+    var approveAmount = new BigNumber("2000000");
+    var availAmount = new BigNumber("1000000");
+    return TestToken.deployed().then(function(instance) {
+      testToken = instance;
+      return BookERC20EthV1.deployed();
+    }).then(function(instance) {
+      uut = instance;
+      return uut.init(testToken.address, testToken.address);
+    }).then(function(junk) {
+      return testToken.transfer(accounts[1], availAmount, {from: accounts[0]});
+    }).then(function(junk) {
+      return testToken.balanceOf.call(accounts[1]);
+    }).then(function(balance) {
+      assert.equal(availAmount.toString(), balance.toString());
+      return testToken.approve(uut.address, approveAmount, {from: accounts[1]});
+    }).then(function(junk) {
+      return uut.transferFromBase({from: accounts[1]});
+    }).then(assert.fail).catch(function(error) {
+      assert(error.message.indexOf('invalid opcode') >= 0, 'error should be a solidity throw, not ' + error);
+    }).then(function(junk) {
+      return uut.getClientBalances.call(accounts[1]);
+    }).then(function(balances) {
+      assert.equal(balances[0].toString(), "0");
+    });
+  });
+});
+
+contract('BookERC20EthV1 - ERC20 payments', function(accounts) {
+  it("instantly throws on insufficient funds (none at all) for withdraw counter", function() {
+    var uut;
+    var rawWithdrawAmountCntr = new BigNumber("1e25");
+    return TestToken.deployed().then(function(instance) {
+      return BookERC20EthV1.deployed();
+    }).then(function(instance) {
+      uut = instance;
+    }).then(function(junk) {
+      return uut.withdrawCntr(rawWithdrawAmountCntr, {from: accounts[0]});
+    }).then(assert.fail).catch(function(error) {
+      assert(error.message.indexOf('invalid opcode') >= 0, 'error should be a solidity throw, not ' + error);
+    });
+  });
+  it("instantly throws on insufficient funds (some but too few) for withdraw counter", function() {
+    var uut;
+    var rawWithdrawAmountCntr = new BigNumber("1e25");
+    return TestToken.deployed().then(function(instance) {
+      return BookERC20EthV1.deployed();
+    }).then(function(instance) {
+      uut = instance;
+    }).then(function(junk) {
+      return uut.depositCntr({from: accounts[0], value: web3.toWei(10, 'finney')});
+    }).then(function(junk) {
+      return uut.withdrawCntr(rawWithdrawAmountCntr, {from: accounts[0]});
+    }).then(assert.fail).catch(function(error) {
+      assert(error.message.indexOf('invalid opcode') >= 0, 'error should be a solidity throw, not ' + error);
+    });
+  });
+});
+
 var standardInitialBalanceBase = web3.toWei(500000, 'finney');
 var standardInitialBalanceCntr = web3.toWei(12000, 'finney');
 var optionalInitialBalanceRwrd = new BigNumber(web3.toWei(10000, 'finney'));
