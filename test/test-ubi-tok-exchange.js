@@ -123,6 +123,8 @@ contract('BookERC20EthV1Dec with 8dp - create order rejects', function(accounts)
       return BookERC20EthV1Dec.deployed();
     }).then(function(instance) {
       uut = instance;
+      return uut.init(testToken.address, testToken.address, UbiTokTypes.encodeBaseAmount("0.1", 8), 5);
+    }).then(function(result) {
       return uut.depositCntr({from: accounts[0], value: web3.toWei(200, 'finney')});
     }).then(function(result) {
       return uut.getClientBalances.call(accounts[0]);
