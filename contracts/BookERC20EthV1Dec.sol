@@ -16,13 +16,10 @@ contract ERC20 {
 // This variation is for a "nice" ERC20 token as base, ETH as quoted, and standard fees with reward token.
 // Copyright (c) Bonnag Limited. All Rights Reserved.
 // Version 1.0.0.
-// This contract is hard coded to have:
-//  * minPriceExponent = -5; (that is, 1 token-wei worth between 0.100e-5 to 0.999e6 wei)
-//  * baseMinInitialSize = 100 finney;
-//  * baseMinRemainingSize = 10 finney;
-// which is appropriate for a token with 18 decimals and an expected exchange rate 1 token = 0.0001 to 1.0 ETH.
+// This contract allows minPriceExponent, baseMinInitialSize, and baseMinRemainingSize
+// to be set at init() time appropriately for the token decimals and likely value.
 //
-contract BookERC20EthV1 {
+contract BookERC20EthV1Dec {
 
   enum BookType {
     ERC20EthV1
@@ -159,11 +156,11 @@ contract BookERC20EthV1 {
   ERC20 baseToken;
 
   // minimum order size (inclusive)
-  uint constant baseMinInitialSize = 100 finney;
+  uint baseMinInitialSize; // set at init
 
   // if following partial match, the remaning gets smaller than this, remove from book and refund:
   // generally we make this 10% of baseMinInitialSize
-  uint constant baseMinRemainingSize = 10 finney;
+  uint baseMinRemainingSize; // set at init
 
   // maximum order size (exclusive)
   // chosen so that even multiplied by the max price (or divided by the min price),
@@ -184,7 +181,7 @@ contract BookERC20EthV1 {
 
   // the reward token that can be used to pay fees (UBI)
 
-  ERC20 rwrdToken;
+  ERC20 rwrdToken; // set at init
 
   // used to convert ETH amount to reward tokens when paying fee with reward tokens
   uint constant ethRwrdRate = 1000;
@@ -202,7 +199,7 @@ contract BookERC20EthV1 {
   
   // fees charged are given to:
   
-  address feeCollector;
+  address feeCollector; // set at init
 
   // all orders ever created
   
@@ -256,7 +253,7 @@ contract BookERC20EthV1 {
   // If we want to map each packed price to a boolean value (which we do),
   // we require 85 256-bit words. Or 42.5 for each side of the book.
   
-  int8 constant minPriceExponent = -5;
+  int8 minPriceExponent; // set at init
 
   uint constant invalidPrice = 0;
 
@@ -270,7 +267,7 @@ contract BookERC20EthV1 {
   //
   // Sets feeCollector to the creator. Creator needs to call init() to finish setup.
   //
-  function BookERC20EthV1() {
+  function BookERC20EthV1Dec() {
     address creator = msg.sender;
     feeCollector = creator;
   }
@@ -281,12 +278,32 @@ contract BookERC20EthV1 {
   //
   // Used instead of a constructor to make deployment easier.
   //
-  function init(ERC20 _baseToken, ERC20 _rwrdToken) public {
+  // baseMinInitialSize is the minimum order size in token-wei;
+  // the minimum resting size will be one tenth of that.
+  //
+  // minPriceExponent controls the range of prices supported by the contract;
+  // the range will be 0.100*10**minPriceExponent to 0.999*10**(minPriceExponent + 11)
+  // but careful; this is in token-wei : wei, ignoring the number of decimals of the token
+  // e.g. -5 implies 1 token-wei worth between 0.100e-5 to 0.999e+6 wei
+  // which implies same token:eth exchange rate if token decimals are 18 like eth,
+  // but if token decimals are 8, that would imply 1 token worth 10 wei to 0.000999 ETH.
+  //
+  function init(ERC20 _baseToken, ERC20 _rwrdToken, uint _baseMinInitialSize, int8 _minPriceExponent) public {
     require(msg.sender == feeCollector);
     require(address(baseToken) == 0);
     require(address(_baseToken) != 0);
     require(address(rwrdToken) == 0);
     require(address(_rwrdToken) != 0);
+    require(_baseMinInitialSize >= 10);
+    require(_baseMinInitialSize < baseMaxSize / 1000000);
+    require(_minPriceExponent >= -20 && _minPriceExponent <= 20);
+    if (_minPriceExponent < 2) {
+      require(_baseMinInitialSize >= 10 ** uint(3-int(minPriceExponent)));
+    }
+    baseMinInitialSize = _baseMinInitialSize;
+    // dust prevention. truncation ok, know >= 10
+    baseMinRemainingSize = _baseMinInitialSize / 10;
+    minPriceExponent = _minPriceExponent;
     // attempt to catch bad tokens:
     require(_baseToken.totalSupply() > 0);
     baseToken = _baseToken;

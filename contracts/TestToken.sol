@@ -51,14 +51,27 @@ contract TestToken is ERC20 {
 
   string public name = "TestToken";
   string public symbol = "TEST";
-  uint256 public decimals = 18;
-  uint256 public INITIAL_SUPPLY = 1000000 ether;
+  uint256 public decimals;
+  uint256 public INITIAL_SUPPLY;
 
   mapping(address => uint256) balances;
   mapping (address => mapping (address => uint256)) allowed;
 
   function TestToken() {
+    decimals = 18;
+    INITIAL_SUPPLY = 1000000 ether;
     balances[msg.sender] = INITIAL_SUPPLY;
+  }
+
+  /**
+   * Obviously wouldn't do this in a real contract - but constructor
+   * params are a bit fiddly with truffle.
+  */
+  function initForTesting(uint256 _decimals, uint256 _initialSupply) public {
+    require(balances[msg.sender] == INITIAL_SUPPLY);
+    decimals = _decimals;
+    INITIAL_SUPPLY = _initialSupply;
+    balances[msg.sender] = _initialSupply;
   }
   
   function totalSupply() public constant returns (uint totalSupply) {

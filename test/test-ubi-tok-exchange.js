@@ -2,8 +2,27 @@
 //
 
 var BookERC20EthV1 = artifacts.require('BookERC20EthV1.sol');
+var BookERC20EthV1Dec = artifacts.require('BookERC20EthV1Dec.sol');
 var TestToken = artifacts.require('TestToken.sol');
 var UbiRewardToken = artifacts.require('UbiRewardToken.sol');
+
+var BookDecimalSetup = {
+  baseDecimals: 18,
+  baseMinInitialSize: "100000000000000000",
+  minPriceExponent: "-5"
+};
+
+var BookEightDecimalSetup = {
+  baseDecimals: 8,
+  baseMinInitialSize: "1000000000",
+  minPriceExponent: "5"
+};
+
+var BookZeroDecimalSetup = {
+  baseDecimals: 0,
+  baseMinInitialSize: "10",
+  minPriceExponent: "13"
+};
 
 var UbiTokTypes = require('../../ubitok-jslib/ubi-tok-types.js');
 var BigNumber = UbiTokTypes.BigNumber;
@@ -41,12 +60,12 @@ contract('BookERC20EthV1 - create order rejects', function(accounts) {
   var packedBuyOnePointZero = UbiTokTypes.encodePrice('Buy @ 1.00');
   var packedMaxBuyPrice = 1;
   var badOrders = [
-    [ 1001, 0, web3.toWei(100, 'finney'), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "obviously invalid price", "InvalidPrice" ],
-    [ 1002, packedBuyOnePointZero, web3.toWei(201, 'finney'), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "not enough funds", "InsufficientFunds" ],
+    [ 1001, 0, UbiTokTypes.encodeBaseAmount("0.100", 18), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "obviously invalid price", "InvalidPrice" ],
+    [ 1002, packedBuyOnePointZero, UbiTokTypes.encodeBaseAmount("0.201", 18), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "not enough funds", "InsufficientFunds" ],
     [ 1003, packedBuyOnePointZero, new web3.BigNumber("1e39"), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "preposterously large base size", "InvalidSize" ],
     [ 1004, packedMaxBuyPrice, new web3.BigNumber("1e36"), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "preposterously large quoted size (but base just ok)", "InvalidSize" ],
-    [ 1005, UbiTokTypes.encodePrice('Buy @ 100.0'), web3.toWei(99, 'finney'), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "small base size (but quoted ok)", "InvalidSize" ],
-    [ 1006, UbiTokTypes.encodePrice('Buy @ 0.05'), web3.toWei(199, 'finney'), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "small quoted size (but base ok)", "InvalidSize" ],
+    [ 1005, UbiTokTypes.encodePrice('Buy @ 100.0'), UbiTokTypes.encodeBaseAmount("0.099", 18), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "small base size (but quoted ok)", "InvalidSize" ],
+    [ 1006, UbiTokTypes.encodePrice('Buy @ 0.05'), UbiTokTypes.encodeBaseAmount("0.199", 18), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "small quoted size (but base ok)", "InvalidSize" ],
     [ 1007, packedBuyOnePointZero, web3.toWei(100, 'finney'), UbiTokTypes.encodeTerms('MakerOnly'), 1, "maxMatches > 0 with MakerOnly", "InvalidTerms" ]
   ];
   var balanceQuotedAfterDeposit;
@@ -68,6 +87,53 @@ contract('BookERC20EthV1 - create order rejects', function(accounts) {
         uut = instance;
         return uut.createOrder(badOrder[0], badOrder[1], badOrder[2], badOrder[3], badOrder[4], {from: accounts[0]});
       }).then(function(result) {
+        return uut.getOrderState.call(badOrder[0]);
+      }).then(function(result) {
+        var state = UbiTokTypes.decodeOrderState(badOrder[0], result);
+        assert.equal(state.status, 'Rejected');
+        assert.equal(state.reasonCode, badOrder[6]);
+        return uut.getClientBalances.call(accounts[0]);
+      }).then(function(balancesAfterOrderRejected) {
+        assert.equal(balancesAfterOrderRejected[1].toString(), balanceQuotedAfterDeposit.toString());
+      });
+    });
+  });
+});
+
+contract('BookERC20EthV1Dec with 8dp - create order rejects', function(accounts) {
+  var packedBuyOnePointZero = UbiTokTypes.encodePrice('Buy @ 1.00');
+  var packedMaxBuyPrice = 1;
+  var badOrders = [
+    [ 1001, 0, UbiTokTypes.encodeBaseAmount("0.100", 8), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "obviously invalid price", "InvalidPrice" ],
+    [ 1002, packedBuyOnePointZero, UbiTokTypes.encodeBaseAmount("0.201", 8), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "not enough funds", "InsufficientFunds" ],
+    [ 1003, packedBuyOnePointZero, new web3.BigNumber("1e39"), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "preposterously large base size", "InvalidSize" ],
+    [ 1004, packedMaxBuyPrice, new web3.BigNumber("1e36"), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "preposterously large quoted size (but base just ok)", "InvalidSize" ],
+    [ 1005, UbiTokTypes.encodePrice('Buy @ 100.0'), UbiTokTypes.encodeBaseAmount("0.099", 8), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "small base size (but quoted ok)", "InvalidSize" ],
+    [ 1006, UbiTokTypes.encodePrice('Buy @ 0.05'), UbiTokTypes.encodeBaseAmount("0.199", 8), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "small quoted size (but base ok)", "InvalidSize" ],
+    [ 1007, packedBuyOnePointZero, web3.toWei(100, 'finney'), UbiTokTypes.encodeTerms('MakerOnly'), 1, "maxMatches > 0 with MakerOnly", "InvalidTerms" ]
+  ];
+  var balanceQuotedAfterDeposit;
+  var uut;
+  var testToken;
+  it("first accepts a deposit to be used to place bad orders", function() {
+    return TestToken.deployed().then(function(instance) {
+      testToken = instance;
+      testToken.initForTesting(8, UbiTokTypes.encodeBaseAmount("1000000", 8));
+    }).then(function(result) {
+      return BookERC20EthV1Dec.deployed();
+    }).then(function(instance) {
+      uut = instance;
+      return uut.depositCntr({from: accounts[0], value: web3.toWei(200, 'finney')});
+    }).then(function(result) {
+      return uut.getClientBalances.call(accounts[0]);
+    }).then(function(balances) {
+      balanceQuotedAfterDeposit = balances[1];
+    });
+  });
+  badOrders.forEach(function(badOrder) {
+    it("gracefully reject create order with " + badOrder[5] + " (at no cost)", function() {
+      return uut.createOrder(badOrder[0], badOrder[1], badOrder[2], badOrder[3], badOrder[4], {from: accounts[0]}
+      ).then(function(result) {
         return uut.getOrderState.call(badOrder[0]);
       }).then(function(result) {
         var state = UbiTokTypes.decodeOrderState(badOrder[0], result);
@@ -521,7 +587,7 @@ function buildScenario(accounts, commands, expectedOrders, expectedBalanceChange
       return function (lastResult) {
         var order = UbiTokTypes.decodeOrder(oid, lastResult);
         assert.equal(order.price, ro.price, "price of order " + oid + " compared to reference");
-        assert.equal(order.sizeBase, UbiTokTypes.decodeBaseAmount(ro.sizeBase), "sizeBase of order " + oid + " compared to reference");
+        assert.equal(order.sizeBase, UbiTokTypes.decodeBaseAmount(ro.sizeBase, BookDecimalSetup.baseDecimals), "sizeBase of order " + oid + " compared to reference");
         assert.equal(order.terms, ro.terms, "terms of order " + oid + " compared to reference");
         assert.equal(order.status, ro.status, "status of order " + oid + " compared to reference");
         assert.equal(order.reasonCode, ro.reasonCode, "reasonCode of order " + oid + " compared to reference");
@@ -647,8 +713,8 @@ contract('BookERC20EthV1', function(accounts) {
         orderId: new BigNumber(101),
         marketOrderEventType: new BigNumber(2),
         price: new BigNumber(UbiTokTypes.encodePrice("Buy @ 0.500")),
-        depthBase: UbiTokTypes.encodeBaseAmount("1.0"),
-        tradeBase: UbiTokTypes.encodeBaseAmount("1.0")
+        depthBase: UbiTokTypes.encodeBaseAmount("1.0", BookDecimalSetup.baseDecimals),
+        tradeBase: UbiTokTypes.encodeBaseAmount("1.0", BookDecimalSetup.baseDecimals)
       }}
     ];
     return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges, expectedLogEvents);
@@ -953,8 +1019,8 @@ contract('BookERC20EthV1', function(accounts) {
         orderId: new BigNumber(101),
         marketOrderEventType: new BigNumber(1), // remove
         price: new BigNumber(UbiTokTypes.encodePrice("Buy @ 0.500")),
-        depthBase: UbiTokTypes.encodeBaseAmount("1.0"),
-        tradeBase: UbiTokTypes.encodeBaseAmount("0.0")
+        depthBase: UbiTokTypes.encodeBaseAmount("1.0", BookDecimalSetup.baseDecimals),
+        tradeBase: UbiTokTypes.encodeBaseAmount("0.0", BookDecimalSetup.baseDecimals)
       }}
     ];
     return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges, expectedLogEvents);
@@ -1474,8 +1540,8 @@ contract('BookERC20EthV1', function(accounts) {
         orderId: new BigNumber(102),
         marketOrderEventType: new BigNumber(2), // complete fill
         price: new BigNumber(UbiTokTypes.encodePrice("Buy @ 0.500")),
-        depthBase: UbiTokTypes.encodeBaseAmount("0.2001"),
-        tradeBase: UbiTokTypes.encodeBaseAmount("0.200")
+        depthBase: UbiTokTypes.encodeBaseAmount("0.2001", BookDecimalSetup.baseDecimals),
+        tradeBase: UbiTokTypes.encodeBaseAmount("0.200", BookDecimalSetup.baseDecimals)
       }}
     ];
     return buildScenario(accounts, commands, expectedOrders, expectedBalanceChanges, expectedLogEvents);
