@@ -3,25 +3,37 @@
 
 var BookERC20EthV1 = artifacts.require('BookERC20EthV1.sol');
 var BookERC20EthV1Dec = artifacts.require('BookERC20EthV1Dec.sol');
+var BookERC20EthV1p1 = artifacts.require('BookERC20EthV1p1.sol'); // TODO - tests
 var TestToken = artifacts.require('TestToken.sol');
 var UbiRewardToken = artifacts.require('UbiRewardToken.sol');
 
 var BookDecimalSetup = {
   baseDecimals: 18,
   baseMinInitialSize: "100000000000000000",
-  minPriceExponent: "-5"
+  minPriceExponent: "-5",
+  priceRangeAdjustment: 0
 };
 
 var BookEightDecimalSetup = {
   baseDecimals: 8,
   baseMinInitialSize: "1000000000",
-  minPriceExponent: "5"
+  minPriceExponent: "5",
+  priceRangeAdjustment: 0
+};
+
+// very low value token with range adjustment - TODO - tests
+var BookLowEightDecimalSetup = {
+  baseDecimals: 8,
+  baseMinInitialSize: "1000000000",
+  minPriceExponent: "2",
+  priceRangeAdjustment: -3
 };
 
 var BookZeroDecimalSetup = {
   baseDecimals: 0,
   baseMinInitialSize: "10",
-  minPriceExponent: "13"
+  minPriceExponent: "13",
+  priceRangeAdjustment: 0
 };
 
 var UbiTokTypes = require('../../ubitok-jslib/ubi-tok-types.js');
@@ -31,7 +43,7 @@ var ReferenceExchange = require('../../ubitok-jslib/reference-exchange-instrumen
 process.on('exit', function () { require('fs').writeFileSync('coverage.data', Buffer(JSON.stringify(__coverage__))) });
 
 contract('BookERC20EthV1 - create order errors', function(accounts) {
-  var packedBuyOnePointZero = UbiTokTypes.encodePrice('Buy @ 1.00');
+  var packedBuyOnePointZero = UbiTokTypes.encodePrice('Buy @ 1.00', 0);
   it("instantly throws on invalid order id", function() {
     var uut;
     return BookERC20EthV1.deployed().then(function(instance) {
@@ -57,15 +69,15 @@ contract('BookERC20EthV1 - create order errors', function(accounts) {
 });
 
 contract('BookERC20EthV1 - create order rejects', function(accounts) {
-  var packedBuyOnePointZero = UbiTokTypes.encodePrice('Buy @ 1.00');
+  var packedBuyOnePointZero = UbiTokTypes.encodePrice('Buy @ 1.00', 0);
   var packedMaxBuyPrice = 1;
   var badOrders = [
     [ 1001, 0, UbiTokTypes.encodeBaseAmount("0.100", 18), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "obviously invalid price", "InvalidPrice" ],
     [ 1002, packedBuyOnePointZero, UbiTokTypes.encodeBaseAmount("0.201", 18), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "not enough funds", "InsufficientFunds" ],
     [ 1003, packedBuyOnePointZero, new web3.BigNumber("1e39"), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "preposterously large base size", "InvalidSize" ],
     [ 1004, packedMaxBuyPrice, new web3.BigNumber("1e36"), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "preposterously large quoted size (but base just ok)", "InvalidSize" ],
-    [ 1005, UbiTokTypes.encodePrice('Buy @ 100.0'), UbiTokTypes.encodeBaseAmount("0.099", 18), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "small base size (but quoted ok)", "InvalidSize" ],
-    [ 1006, UbiTokTypes.encodePrice('Buy @ 0.05'), UbiTokTypes.encodeBaseAmount("0.199", 18), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "small quoted size (but base ok)", "InvalidSize" ],
+    [ 1005, UbiTokTypes.encodePrice('Buy @ 100.0', 0), UbiTokTypes.encodeBaseAmount("0.099", 18), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "small base size (but quoted ok)", "InvalidSize" ],
+    [ 1006, UbiTokTypes.encodePrice('Buy @ 0.05', 0), UbiTokTypes.encodeBaseAmount("0.199", 18), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "small quoted size (but base ok)", "InvalidSize" ],
     [ 1007, packedBuyOnePointZero, web3.toWei(100, 'finney'), UbiTokTypes.encodeTerms('MakerOnly'), 1, "maxMatches > 0 with MakerOnly", "InvalidTerms" ]
   ];
   var balanceQuotedAfterDeposit;
@@ -101,15 +113,15 @@ contract('BookERC20EthV1 - create order rejects', function(accounts) {
 });
 
 contract('BookERC20EthV1Dec with 8dp - create order rejects', function(accounts) {
-  var packedBuyOnePointZero = UbiTokTypes.encodePrice('Buy @ 1.00');
+  var packedBuyOnePointZero = UbiTokTypes.encodePrice('Buy @ 1.00', 0);
   var packedMaxBuyPrice = 1;
   var badOrders = [
     [ 1001, 0, UbiTokTypes.encodeBaseAmount("0.100", 8), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "obviously invalid price", "InvalidPrice" ],
     [ 1002, packedBuyOnePointZero, UbiTokTypes.encodeBaseAmount("0.201", 8), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "not enough funds", "InsufficientFunds" ],
     [ 1003, packedBuyOnePointZero, new web3.BigNumber("1e39"), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "preposterously large base size", "InvalidSize" ],
     [ 1004, packedMaxBuyPrice, new web3.BigNumber("1e36"), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "preposterously large quoted size (but base just ok)", "InvalidSize" ],
-    [ 1005, UbiTokTypes.encodePrice('Buy @ 100.0'), UbiTokTypes.encodeBaseAmount("0.099", 8), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "small base size (but quoted ok)", "InvalidSize" ],
-    [ 1006, UbiTokTypes.encodePrice('Buy @ 0.05'), UbiTokTypes.encodeBaseAmount("0.199", 8), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "small quoted size (but base ok)", "InvalidSize" ],
+    [ 1005, UbiTokTypes.encodePrice('Buy @ 100.0', 0), UbiTokTypes.encodeBaseAmount("0.099", 8), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "small base size (but quoted ok)", "InvalidSize" ],
+    [ 1006, UbiTokTypes.encodePrice('Buy @ 0.05', 0), UbiTokTypes.encodeBaseAmount("0.199", 8), UbiTokTypes.encodeTerms('GTCNoGasTopup'), 3, "small quoted size (but base ok)", "InvalidSize" ],
     [ 1007, packedBuyOnePointZero, web3.toWei(100, 'finney'), UbiTokTypes.encodeTerms('MakerOnly'), 1, "maxMatches > 0 with MakerOnly", "InvalidTerms" ]
   ];
   var balanceQuotedAfterDeposit;
@@ -406,7 +418,7 @@ function buildScenario(accounts, commands, expectedOrders, expectedBalanceChange
         return function (lastResult) {
           return ctx.uut.createOrder(
             c[2],
-            UbiTokTypes.encodePrice(c[3]),
+            UbiTokTypes.encodePrice(c[3], 0),
             web3.toWei(c[4], 'ether'),
             UbiTokTypes.encodeTerms(c[5]),
             c[6],
@@ -623,13 +635,13 @@ function buildScenario(accounts, commands, expectedOrders, expectedBalanceChange
   var refBook = referenceExchange.getBook();
   chain = chain.then((function (ctx) {
     return function (lastResult) {
-      return ctx.uut.walkBook.call(UbiTokTypes.encodePrice('Buy @ 999000'));
+      return ctx.uut.walkBook.call(UbiTokTypes.encodePrice('Buy @ 999000', 0));
     };
   }(context)));
   for (let entry of refBook[0]) {
     chain = chain.then((function (ctx, ren) {
       return function (lastResult) {
-        var lastPrice = UbiTokTypes.decodePrice(lastResult[0]);
+        var lastPrice = UbiTokTypes.decodePrice(lastResult[0], 0);
         assert.equal(lastPrice, ren[0], "book entry price");
         // TODO - potential dubious rounding here for large numbers?
         assert.equal(lastResult[1].toNumber(), ren[1], "book entry depth for " + lastPrice);
@@ -646,13 +658,13 @@ function buildScenario(accounts, commands, expectedOrders, expectedBalanceChange
   }
   chain = chain.then((function (ctx) {
     return function (lastResult) {
-      return ctx.uut.walkBook.call(UbiTokTypes.encodePrice('Sell @ 0.00000100'));
+      return ctx.uut.walkBook.call(UbiTokTypes.encodePrice('Sell @ 0.00000100', 0));
     };
   }(context)));
   for (let entry of refBook[1]) {
     chain = chain.then((function (ctx, ren) {
       return function (lastResult) {
-        var lastPrice = UbiTokTypes.decodePrice(lastResult[0]);
+        var lastPrice = UbiTokTypes.decodePrice(lastResult[0], 0);
         assert.equal(lastPrice, ren[0], "book entry price");
         // TODO - potential dubious rounding here for large numbers?
         assert.equal(lastResult[1].toNumber(), ren[1], "book entry depth for " + lastPrice);
@@ -714,7 +726,7 @@ contract('BookERC20EthV1', function(accounts) {
       {event: "MarketOrderEvent", args: {
         orderId: new BigNumber(101),
         marketOrderEventType: new BigNumber(2),
-        price: new BigNumber(UbiTokTypes.encodePrice("Buy @ 0.500")),
+        price: new BigNumber(UbiTokTypes.encodePrice("Buy @ 0.500", 0)),
         depthBase: UbiTokTypes.encodeBaseAmount("1.0", BookDecimalSetup.baseDecimals),
         tradeBase: UbiTokTypes.encodeBaseAmount("1.0", BookDecimalSetup.baseDecimals)
       }}
@@ -1020,7 +1032,7 @@ contract('BookERC20EthV1', function(accounts) {
       {event: "MarketOrderEvent", args: {
         orderId: new BigNumber(101),
         marketOrderEventType: new BigNumber(1), // remove
-        price: new BigNumber(UbiTokTypes.encodePrice("Buy @ 0.500")),
+        price: new BigNumber(UbiTokTypes.encodePrice("Buy @ 0.500", 0)),
         depthBase: UbiTokTypes.encodeBaseAmount("1.0", BookDecimalSetup.baseDecimals),
         tradeBase: UbiTokTypes.encodeBaseAmount("0.0", BookDecimalSetup.baseDecimals)
       }}
@@ -1541,7 +1553,7 @@ contract('BookERC20EthV1', function(accounts) {
       {event: "MarketOrderEvent", args: {
         orderId: new BigNumber(102),
         marketOrderEventType: new BigNumber(2), // complete fill
-        price: new BigNumber(UbiTokTypes.encodePrice("Buy @ 0.500")),
+        price: new BigNumber(UbiTokTypes.encodePrice("Buy @ 0.500", 0)),
         depthBase: UbiTokTypes.encodeBaseAmount("0.2001", BookDecimalSetup.baseDecimals),
         tradeBase: UbiTokTypes.encodeBaseAmount("0.200", BookDecimalSetup.baseDecimals)
       }}
