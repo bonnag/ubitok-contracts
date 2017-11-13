@@ -1,3 +1,4 @@
+// TODO - upgrade to 0.4.18 once testing complete
 pragma solidity ^0.4.11;
 
 // NB: this is the newer ERC20 returning bool, need different book contract for older style tokens
@@ -15,13 +16,11 @@ contract ERC20 {
 // UbiTok.io on-chain continuous limit order book matching engine.
 // This variation is for a "nice" ERC20 token as base, ETH as quoted, and standard fees with reward token.
 // Copyright (c) Bonnag Limited. All Rights Reserved.
-// Version 1.0.0.
+// Version 1.1.0.
 // This contract allows minPriceExponent, baseMinInitialSize, and baseMinRemainingSize
 // to be set at init() time appropriately for the token decimals and likely value.
-// getBookInfo does not return minPriceExponent, but callers can assume it is -5 for
-// 18 decimal tokens, and +5 for 8 decimal tokens, for all official UbiTok contracts.
 //
-contract BookERC20EthV1Dec {
+contract BookERC20EthV1p1 {
 
   enum BookType {
     ERC20EthV1
@@ -269,7 +268,7 @@ contract BookERC20EthV1Dec {
   //
   // Sets feeCollector to the creator. Creator needs to call init() to finish setup.
   //
-  function BookERC20EthV1Dec() {
+  function BookERC20EthV1p1() {
     address creator = msg.sender;
     feeCollector = creator;
   }
@@ -326,12 +325,9 @@ contract BookERC20EthV1Dec {
   
   // Public Info View - what is being traded here, what are the limits?
   //
-  // This version does not return minPriceExponent, but callers can assume it is -5 for
-  // 18 decimal tokens, and +5 for 8 decimal tokens, for all official UbiTok contracts.
-  //
   function getBookInfo() public constant returns (
       BookType _bookType, address _baseToken, address _rwrdToken,
-      uint _baseMinInitialSize, uint _cntrMinInitialSize,
+      uint _baseMinInitialSize, uint _cntrMinInitialSize, int8 _minPriceExponent,
       uint _feeDivisor, address _feeCollector
     ) {
     return (
@@ -340,6 +336,7 @@ contract BookERC20EthV1Dec {
       address(rwrdToken),
       baseMinInitialSize, // can assume min resting size is one tenth of this
       cntrMinInitialSize,
+      minPriceExponent,
       feeDivisor,
       feeCollector
     );
