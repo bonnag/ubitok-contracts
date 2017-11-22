@@ -1,4 +1,3 @@
-// TODO - upgrade to 0.4.18 once testing complete
 pragma solidity ^0.4.11;
 
 // NB: this is the newer ERC20 returning bool, need different book contract for older style tokens
@@ -205,7 +204,7 @@ contract BookERC20EthV1p1 {
   // all orders ever created
   
   mapping (uint128 => Order) orderForOrderId;
-  
+
   // Effectively a compact mapping from price to whether there are any open orders at that price.
   // See "Price Calculation Constants" below as to why 85.
 
@@ -1270,3 +1269,20 @@ contract BookERC20EthV1p1 {
     }
   }
 }
+
+// helper for automating book creation
+contract BookERC20EthV1p1Factory {
+
+    event BookCreated (address bookAddress);
+
+    function BookERC20EthV1p1Factory() {
+    }
+
+    function createBook(ERC20 _baseToken, ERC20 _rwrdToken, address _feeCollector, uint _baseMinInitialSize, int8 _minPriceExponent) public {
+        BookERC20EthV1p1 book = new BookERC20EthV1p1();
+        book.init(_baseToken, _rwrdToken, _baseMinInitialSize, _minPriceExponent);
+        book.changeFeeCollector(_feeCollector);
+        BookCreated(address(book));
+    }
+}
+
